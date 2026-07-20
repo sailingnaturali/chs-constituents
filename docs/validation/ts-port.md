@@ -67,7 +67,10 @@ what makes PNW currents asymmetric. **The CLI default is now 210 days**, which c
 everything except S2/T2. `fit()` reports unresolvable pairs in `unseparable` rather than
 throwing, because predictions are noise-free and the validation stage is the real gate.
 
-## Finding 3 (open): neaps and utide disagree at slow-reversing stations
+## Finding 3: neaps and utide disagree at slow-reversing stations
+
+*Recorded as open when first written; root-caused the same day — see the resolution below.
+Kept as-written because the eliminations it records are what made the resolution findable.*
 
 Slack timing did *not* reach parity at two stations: Juan de Fuca East (TS 17.7 vs Python 9.5
 min) and Race Passage (8.1 vs 5.5). Three hypotheses were tested and two eliminated:
@@ -91,7 +94,63 @@ slow-reversing stations where a small velocity error moves the zero crossing by 
 Against CHS ground truth neither wins outright: utide is closer at Juan de Fuca East and Race
 Passage, neaps is closer at Blackney, Tillicum, Sechelt and Hole in the Wall.
 
-This is worth pursuing upstream, since neaps underpins more than this package. It does not
-block the port: extremum timing is at parity, the per-station validation tiers measure slack
-error honestly and separately, and the whole stack is neaps-based, so agreeing with neaps is
-the more useful consistency.
+## Finding 3, resolved: it is the nodal corrections, and the fit absorbs most of it
+
+*2026-07-20, same day.* The ablation above compared **outputs**. Comparing the engines'
+**internals** settles it directly, and needs no CHS data at all — both libraries expose their
+per-constituent astronomical argument and nodal terms, so this probe *is* reproducible in
+this repo, unlike the event comparison. neaps gives V via `constituents[name].value(astro(t))`
+and f/u via `.correction(astro(t))`; utide gives all three from
+`utide.harmonics.FUV(t, tref, lind, lat, [0,0,0,0])`. Constituent identity was checked by
+frequency, matching to 1e-7 °/h across the basis, so the columns really are the same waves.
+
+**It is not the astronomical argument.** V agrees between the engines to **0.00°** on every
+constituent in the basis. The one exception is M3's known 180° offset, which is in V, not u.
+
+**It is not the `V₀ + ωt` convention either** — a hypothesis not tested above. neaps' tabulated
+`speed` matches the time derivative of its own `value()` to ~1e-8 °/h; total phase drift over
+the 187-day training-plus-validation span is under 0.0002° for every constituent. The
+linear-phase shortcut is sound.
+
+**It is the nodal corrections, and it is a convention difference rather than a bug.** neaps
+applies Schureman's *grouped* factors — M2, N2, 2N2, MU2 and NU2 share one f/u to six
+decimals, as do O1 and Q1. utide applies Foreman's *satellite-derived per-constituent* factors,
+where each constituent gets its own. The largest split is 2N2: f = 0.965 in neaps (M2's value)
+against 1.110 in utide, a 13% difference, with ~3.6° of phase alongside it. Neither is wrong;
+grouped-Schureman is the classical approximation and satellite-Foreman the refined one.
+
+That is also why the ablation found no culprit. The disagreement is spread thin across 2N2,
+M2, MM, J1 and N2 with no dominant term, so dropping constituents one at a time could never
+surface it.
+
+**Most of it never reaches the output.** The 24.6 min figure comes from feeding utide's
+constituents through neaps' synthesis — nothing is re-fitted there, so the full disagreement
+lands in the prediction. The shipped pipeline fits *and* synthesises in neaps, so any constant
+f/u offset is absorbed into the fitted amplitude and phase. Only the drift across the
+training-to-validation span survives. Weighted by the fitted amplitudes at Dodd Narrows:
+
+| | velocity error |
+|---|---|
+| raw cross-engine — the regime the 24.6 min was measured in | 2.9% of M2 |
+| post-fit residual — the regime that actually ships | **0.72% of M2** |
+
+0.72% of M2 is roughly 0.85 min at an ordinary zero crossing. Multiplied by the ~7×
+amplification a slow reversal gives, that lands on the 8.2 min TS-vs-Python slack gap observed
+at Juan de Fuca East. The mechanism and the magnitude both check out, and **the 24.6 min
+number overstates the shipped impact by about 4×.**
+
+**M3 is retired as a concern.** Its 180° offset is constant — drift 0.03° over the span — so
+the fit absorbs it completely. It is bookkeeping, with no effect on output.
+
+One asymmetry worth recording: utide returns f = 1.0 and u = 0.0 exactly for MM, MSF and MF,
+i.e. no nodal correction at all on the long-period constituents, where neaps applies the
+Schureman factors. That looks like a genuine gap on utide's side rather than neaps'. It
+barely matters for currents, where those amplitudes are small.
+
+**Conclusion: not worth chasing.** The residual sits below the CHS validation floor, and
+neither engine wins against ground truth. Adopting Foreman factors in neaps would be real work
+with no evidence it improves anything. The characterisation is still worth sending upstream,
+since neaps underpins signalk-tides and TideEngine as well as this package, but as a
+documentation note rather than a defect. The port stands: extremum timing is at parity, the
+per-station validation tiers measure slack error honestly and separately, and the whole stack
+is neaps-based, so agreeing with neaps is the more useful consistency.
