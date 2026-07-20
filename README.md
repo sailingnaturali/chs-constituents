@@ -109,7 +109,7 @@ python chs_constituents.py --training-days 90 --validate-from 2026-06-01
 ### How long it takes
 
 About **52 requests per station** — 26 seven-day chunks × 2 series — which at the 2 s default
-interval is roughly **1.7 minutes per station**. All 16 bundled gates take about half an hour.
+interval is roughly **1.7 minutes per station**. All 19 bundled gates take about half an hour.
 
 Cached chunks are free, and chunks are anchored to a fixed 7-day grid rather than to your start
 date, so re-running with `--training-days 90` after a 180-day run refetches **nothing**.
@@ -123,23 +123,31 @@ Start with the passes near you. Most boats never need Arran Rapids.
 (`wcp1-events`) by 15–30 minutes at complex narrows. This tool fits the continuous series, so it
 inherits that floor. Magnitudes agree to ~0.01 kn; it is the *timing* that slips.
 
-Measured against CHS's own event predictions, out-of-sample, across the Salish Sea gates:
+Measured against CHS's own event predictions, out-of-sample, across the Salish Sea gates. The
+headline median — and the tier — judge **extremum timing only**; slack timing is measured and
+reported separately (`validationSlackMedianMin`), because at weak, slow-reversing stations the
+zero crossing is far noisier than the peaks (Juan de Fuca East: ~17 min on extrema, ~83 min on
+slacks). Thresholds (the authority is `TIERS` in `chs_constituents.py`):
 
-| Tier | Median event-timing error | Character |
-|------|--------------------------|-----------|
+| Tier | Median extremum-timing error | Character |
+|------|------------------------------|-----------|
 | `high` | ≤ 5 min | Clean reversing passes |
 | `medium` | ≤ 20 min | Complex narrows |
 | `low` | ≤ 35 min | Violent, nonlinear rapids |
-| `quarantine` | worse, or any label flip | **Do not use** |
+| `quarantine` | worse, or a reversed flood axis | **Do not use** |
 
 Longer training does not help: 365 days measured no better than 180 at Dodd Narrows (49 min vs
 45.5). If a gate is bad, it is bad because the physics there is nonlinear, not because the fit
 is underfed.
 
-**A label flip quarantines a station outright.** That means the fit predicts flood where CHS
-says ebb — almost always a wrong flood axis, and far more dangerous than a timing error, since
-the current is not merely mistimed but backwards. Two of the bundled Salish Sea gates
-(Tillicum Bridge, Calamity Point) are known to flip and are expected to quarantine.
+**A reversed flood axis quarantines a station outright.** That means the fit predicts flood
+where CHS says ebb — far more dangerous than a timing error, since the current is not merely
+mistimed but backwards. The test is the sign of the modelled velocity at CHS's own extremum
+times, and the bar is systematic disagreement (≥ 60% of extrema): a genuinely reversed axis is
+wrong at nearly every peak. Occasional wrong signs are timing error at a weak station, not a
+flip — an earlier nearest-event comparison conflated the two and false-quarantined three
+directionally-perfect stations (Tillicum Bridge and Calamity Point both measure 0 wrong signs
+under the sound test; see `test_flip_detection_uses_sign_not_nearest_event`).
 
 **Prefer live CHS data when you have a connection.** This is an offline fallback, not a
 replacement. Always carry official CHS current tables.
