@@ -113,11 +113,20 @@ the 187-day training-plus-validation span is under 0.0002° for every constituen
 linear-phase shortcut is sound.
 
 **It is the nodal corrections, and it is a convention difference rather than a bug.** neaps
-applies Schureman's *grouped* factors — M2, N2, 2N2, MU2 and NU2 share one f/u to six
-decimals, as do O1 and Q1. utide applies Foreman's *satellite-derived per-constituent* factors,
-where each constituent gets its own. The largest split is 2N2: f = 0.965 in neaps (M2's value)
-against 1.110 in utide, a 13% difference, with ~3.6° of phase alongside it. Neither is wrong;
-grouped-Schureman is the classical approximation and satellite-Foreman the refined one.
+*groups* constituents by IHO Annex B nodal-correction code, and constituents sharing a code
+share f/u exactly: M2, N2, 2N2, MU2 and NU2 agree to nine decimals, as do O1 and Q1. utide
+applies Foreman's *satellite-derived per-constituent* factors, where each constituent gets its
+own. The largest split is 2N2: f = 0.965 in neaps (M2's value) against 1.110 in utide, a 13%
+difference, with ~3.6° of phase alongside it. Neither is wrong; grouped is the classical
+approximation and satellite-Foreman the refined one.
+
+Be careful with the label here. neaps ships **two** fundamentals sets — `iho` and `schureman` —
+and `correction(astro, fundamentals = fundamentals$2)` defaults to **`iho`**, which is what
+both `fit()` and everything above use. They are not interchangeable: switching to `schureman`
+moves J1 by 7.2% and MF by 5.5%. That intra-library spread is *larger* than several of the
+neaps-versus-utide gaps this section is about — J1 differs by 7.2% between neaps' own two modes
+against 1.5% between neaps and utide — which is a useful reminder that "which nodal convention"
+is a bigger lever than "which library".
 
 That is also why the ablation found no culprit. The disagreement is spread thin across 2N2,
 M2, MM, J1 and N2 with no dominant term, so dropping constituents one at a time could never
