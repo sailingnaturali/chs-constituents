@@ -168,6 +168,21 @@ def test_validation_separates_slack_timing_from_extremum_timing():
     assert cc.tier(result) == "high", "tier must judge extremum timing, not slack timing"
 
 
+def test_best_candidate_prefers_lower_median_and_primary_on_tie():
+    """Per-gate window selection: lowest extremum median wins.
+
+    Neither training window dominates (180d wins Second Narrows by 9.5 min,
+    60d wins Gabriola by 15), so the pipeline fits both and keeps the better
+    per gate. A missing median loses to any measured one; a tie keeps the
+    primary (first) candidate so the default window is stable.
+    """
+    assert cc.best_candidate([{"median": 5.0}, {"median": 3.0}]) == 1
+    assert cc.best_candidate([{"median": 3.0}, {"median": 5.0}]) == 0
+    assert cc.best_candidate([{"median": 3.0}, {"median": 3.0}]) == 0
+    assert cc.best_candidate([{"median": None}, {"median": 40.0}]) == 1
+    assert cc.best_candidate([{"median": None}]) == 0
+
+
 def test_bundle_carries_validation_provenance():
     """A validated bundle must say who validated it and against what.
 

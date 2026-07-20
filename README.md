@@ -102,6 +102,7 @@ python chs_constituents.py --training-days 90 --validate-from 2026-06-01
 | `--training-days` | `180` | Length of the fitted series |
 | `--training-start` | `2025-07-01` | UTC start of the training series |
 | `--validate-from` | *(off)* | Enables out-of-sample validation and tiering |
+| `--alt-training-days` | *(off)* | Also fit a trailing window this long and keep the better fit per station (needs `--validate-from`; no extra fetching — the short window is a subset of the cached series) |
 | `--request-interval` | `2.0` | Seconds between requests |
 | `--only` | — | Substring match on label, repeatable |
 | `--cache-dir` | `.cache` | Cached chunks; safe to delete, expensive to refill |

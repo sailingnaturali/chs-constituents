@@ -351,6 +351,16 @@ def validate(station: dict, observed: list[dict], start: dt.datetime, end: dt.da
     }
 
 
+def best_candidate(results: list[dict]) -> int:
+    """Index of the winning validation result among candidate fits.
+
+    Lowest extremum median wins; a missing median loses to any measured one; a
+    tie keeps the earliest (primary) candidate so the default window is stable.
+    """
+    return min(range(len(results)),
+               key=lambda i: (results[i]["median"] is None, results[i]["median"] or 0.0, i))
+
+
 def tier(result: dict) -> str:
     """Assign a confidence tier.
 
@@ -368,7 +378,8 @@ def tier(result: dict) -> str:
 
 
 def assemble_bundle(stations: list[dict], training_days: int, training_start: str,
-                    validate_from: str | None, validate_days: int) -> dict:
+                    validate_from: str | None, validate_days: int,
+                    alt_training_days: int | None = None) -> dict:
     """Build the output bundle, carrying its own validation provenance.
 
     The tiers travel with a record of who produced them and against which golden
@@ -397,6 +408,11 @@ def assemble_bundle(stations: list[dict], training_days: int, training_start: st
             "headline. Direction tested as the sign of modelled velocity at CHS "
             "extremum times. Tiers judge extremum timing."
         )
+        if alt_training_days:
+            out["validationNote"] += (
+                f" Mixed windows: each station carries the trainingDays that validated "
+                f"better ({training_days}d vs trailing {alt_training_days}d)."
+            )
     out["stations"] = stations
     return out
 
@@ -417,6 +433,11 @@ def main(argv=None) -> int:
                         help="Length of the training series (default: 180).")
     parser.add_argument("--training-start", default="2025-07-01",
                         help="UTC date the training series starts (YYYY-MM-DD).")
+    parser.add_argument("--alt-training-days", type=int, default=None,
+                        help="Also fit a trailing window of this many days (a subset of the "
+                             "primary series, so the cache means no extra data fetching) and "
+                             "keep whichever window validates better per station. Neither "
+                             "window dominates every gate. Requires --validate-from.")
     parser.add_argument("--validate-from", default=None,
                         help="UTC date to begin out-of-sample validation (YYYY-MM-DD). "
                              "Omit to skip validation and confidence tiering.")
@@ -448,22 +469,37 @@ def main(argv=None) -> int:
         val_start = dt.datetime.strptime(args.validate_from, "%Y-%m-%d").replace(
             tzinfo=dt.timezone.utc)
         val_end = val_start + dt.timedelta(days=args.validate_days)
+    if args.alt_training_days and not args.validate_from:
+        parser.error("--alt-training-days needs --validate-from to pick a winner")
+    if args.alt_training_days and args.alt_training_days >= args.training_days:
+        parser.error("--alt-training-days must be shorter than --training-days")
 
     estimate = len(stations) * (args.training_days / CHUNK_DAYS) * 2 * args.request_interval / 60
     print(f"{len(stations)} station(s), {args.training_days}d training "
           f"-- roughly {estimate:.0f} min of fetching (cached chunks are free)\n",
           file=sys.stderr)
 
+    # (window, start) candidates per station; the primary comes first so ties keep it.
+    windows = [(args.training_days, start)]
+    if args.alt_training_days:
+        windows.append((args.alt_training_days,
+                        start + dt.timedelta(days=args.training_days - args.alt_training_days)))
+
     bundle = []
     for station in stations:
         print(f"{station['label']}:", file=sys.stderr)
-        try:
-            fitted = fit_station(client, station, start, args.training_days)
-        except Exception as exc:  # one bad station must not lose the whole run
-            print(f"  FAILED: {exc}", file=sys.stderr)
+        candidates = []
+        for days, wstart in windows:
+            try:
+                f = fit_station(client, station, wstart, days)
+            except Exception as exc:  # one bad station must not lose the whole run
+                print(f"  FAILED ({days}d): {exc}", file=sys.stderr)
+                continue
+            if f is not None:
+                candidates.append((f, days, wstart))
+        if not candidates:
             continue
-        if fitted is None:
-            continue
+        fitted = candidates[0][0]
 
         if val_start:
             rows = client.get(
@@ -480,25 +516,35 @@ def main(argv=None) -> int:
                 }
                 for r in rows if r["qualifier"] in QUALIFIER
             ]
-            result = validate(fitted, observed, val_start, val_end)
+            results = [validate(f, observed, val_start, val_end) for f, _, _ in candidates]
+            win = best_candidate(results)
+            fitted, win_days, win_start = candidates[win]
+            result = results[win]
             fitted["confidence"] = tier(result)
             fitted["validationMedianMin"] = result["median"]
             fitted["validationSlackMedianMin"] = result["slackMedian"]
+            if len(candidates) > 1:
+                # Mixed-window bundle: each station records the window that won.
+                fitted["trainingDays"] = win_days
+                fitted["trainingStart"] = f"{win_start:%Y-%m-%d}"
             reversed_pct = (100 * result["wrongSign"] / result["extrema"]) if result["extrema"] else 0
             flag = (f"  <-- REVERSED AXIS ({result['wrongSign']}/{result['extrema']} extrema)"
                     if reversed_pct >= 100 * FLIP_QUARANTINE else
                     f"  ({result['wrongSign']}/{result['extrema']} wrong sign)"
                     if result["wrongSign"] else "")
+            losers = ", ".join(f"{d}d {r['median']}" for i, (r, (_, d, _s)) in
+                               enumerate(zip(results, candidates)) if i != win)
+            picked = f" [{win_days}d wins{' vs ' + losers if losers else ''}]" if len(candidates) > 1 else ""
             print(f"  validated: median {result['median']} min (slacks {result['slackMedian']}), "
                   f"max {result['max']} min, {result['matched']} events, "
-                  f"tier {fitted['confidence']}{flag}",
+                  f"tier {fitted['confidence']}{picked}{flag}",
                   file=sys.stderr)
 
         bundle.append({k: v for k, v in fitted.items() if not k.startswith("_")})
 
     pathlib.Path(args.output).write_text(json.dumps(assemble_bundle(
         bundle, args.training_days, args.training_start,
-        args.validate_from, args.validate_days,
+        args.validate_from, args.validate_days, args.alt_training_days,
     ), indent=1))
 
     quarantined = [s["name"] for s in bundle if s.get("confidence") == "quarantine"]
