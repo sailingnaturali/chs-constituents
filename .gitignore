@@ -1,0 +1,7 @@
+.cache/
+.venv/
+__pycache__/
+*.pyc
+# Fitted output contains CHS-derived data and must never be committed.
+currents.json
+*-currents.json

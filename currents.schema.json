@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tidal current constituent bundle",
+  "type": "object",
+  "required": ["stations"],
+  "properties": {
+    "note": { "type": "string" },
+    "generated": { "type": "string" },
+    "trainingDays": { "type": "integer" },
+    "trainingStart": { "type": "string" },
+    "stations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "type", "floodDirection", "ebbDirection", "offset", "constituents"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "const": "harmonic" },
+          "source": { "type": "string" },
+          "floodDirection": { "type": "number", "minimum": 0, "maximum": 360,
+            "description": "Compass bearing of the flood axis, degrees true." },
+          "ebbDirection": { "type": "number", "minimum": 0, "maximum": 360 },
+          "offset": { "type": "number",
+            "description": "Mean flow (Z0), knots, along the flood axis." },
+          "confidence": { "enum": ["high", "medium", "low", "quarantine"],
+            "description": "From out-of-sample validation. 'quarantine' means do not use." },
+          "validationMedianMin": { "type": ["number", "null"],
+            "description": "Median event-timing error in minutes vs CHS wcp1-events." },
+          "constituents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "amplitude", "phase"],
+              "properties": {
+                "name": { "type": "string", "description": "e.g. M2, K1, M4" },
+                "amplitude": { "type": "number", "description": "Knots, along the flood axis." },
+                "phase": { "type": "number", "description": "Greenwich phase, degrees." }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
