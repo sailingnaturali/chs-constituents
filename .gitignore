@@ -2,3 +2,8 @@ node_modules/
 dist/
 __pycache__/
 .cache/
+
+# CHS-derived output — never redistribute (see README)
+currents.json
+*.bundle.json
+.venv/

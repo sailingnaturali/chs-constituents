@@ -7,8 +7,8 @@ You run this yourself, for your own boat. That is not a stylistic choice — see
 [Why you have to run this yourself](#why-you-have-to-run-this-yourself).
 
 ```sh
-uv venv && uv pip install -r <(uv pip compile pyproject.toml)
-python chs_constituents.py --only "Active Pass" --validate-from 2026-06-01
+npm install
+npm run fit -- --only "Active Pass" --validate-from 2026-06-01
 ```
 
 ---
@@ -77,7 +77,8 @@ Per station:
 2. **Project** onto the flood axis: `speed · cos(direction − floodDirection)`, giving a signed
    along-channel velocity. The projection is linear, so this is equivalent to a full 2D fit
    projected onto the same axis.
-3. **Solve** for harmonic constituents with [`utide`](https://github.com/wesleybowman/UTide).
+3. **Solve** for harmonic constituents by least squares over a fixed basis, using the
+   astronomy (speeds, V₀, nodal f/u) from [`@neaps/tide-predictor`](https://github.com/openwatersio/neaps).
 4. **Validate** (optional) against CHS's own `wcp1-events` out-of-sample, and assign a
    confidence tier.
 
@@ -87,23 +88,23 @@ Output conforms to [`currents.schema.json`](currents.schema.json).
 
 ```sh
 # One station, validated — good for a first run (~2 minutes)
-python chs_constituents.py --only "Active Pass" --validate-from 2026-06-01
+npm run fit -- --only "Active Pass" --validate-from 2026-06-01
 
 # All bundled Salish Sea gates, validated
-python chs_constituents.py --validate-from 2026-06-01 --output my-currents.json
+npm run fit -- --validate-from 2026-06-01 --output my-currents.json
 
-# Shorter training window (faster; see Accuracy below)
-python chs_constituents.py --training-days 90 --validate-from 2026-06-01
+# Shorter training window (faster, but see Accuracy below)
+npm run fit -- --training-days 90 --validate-from 2026-06-01
 ```
 
 | Flag | Default | Notes |
 |------|---------|-------|
 | `--stations` | `stations/salish-sea.json` | Any `[{id, label}]` list of CHS current stations |
-| `--training-days` | `180` | Length of the fitted series |
+| `--training-days` | `210` | Length of the fitted series; below 183 the fit cannot separate K1/P1 |
 | `--training-start` | `2025-07-01` | UTC start of the training series |
 | `--validate-from` | *(off)* | Enables out-of-sample validation and tiering |
-| `--alt-training-days` | *(off)* | Also fit a trailing window this long and keep the better fit per station (needs `--validate-from`; no extra fetching — the short window is a subset of the cached series) |
-| `--request-interval` | `2.0` | Seconds between requests |
+| `--validate-days` | `7` | Length of the validation window |
+| `--request-interval` | `2.5` | Seconds between requests |
 | `--only` | — | Substring match on label, repeatable |
 | `--cache-dir` | `.cache` | Cached chunks; safe to delete, expensive to refill |
 
@@ -128,7 +129,7 @@ Measured against CHS's own event predictions, out-of-sample, across the Salish S
 headline median — and the tier — judge **extremum timing only**; slack timing is measured and
 reported separately (`validationSlackMedianMin`), because at weak, slow-reversing stations the
 zero crossing is far noisier than the peaks (Juan de Fuca East: ~17 min on extrema, ~83 min on
-slacks). Thresholds (the authority is `TIERS` in `chs_constituents.py`):
+slacks). Thresholds (the authority is `TIERS` in `src/validate.ts`):
 
 | Tier | Median extremum-timing error | Character |
 |------|------------------------------|-----------|
@@ -137,7 +138,11 @@ slacks). Thresholds (the authority is `TIERS` in `chs_constituents.py`):
 | `low` | ≤ 35 min | Violent, nonlinear rapids |
 | `quarantine` | worse, or a reversed flood axis | **Do not use** |
 
-Longer training does not help: 365 days measured no better than 180 at Dodd Narrows (49 min vs
+The default training window is **210 days**, set by the Rayleigh criterion: below 183 days the
+fit cannot separate K1 from P1 (which drives diurnal inequality) or S2 from K2, and below 206
+it cannot separate N2/NU2 or 2N2/MU2. `fit()` reports what a given window cannot resolve.
+
+Longer training does not help beyond that: 365 days measured no better than 180 at Dodd Narrows (49 min vs
 45.5). If a gate is bad, it is bad because the physics there is nonlinear, not because the fit
 is underfed.
 
@@ -168,13 +173,17 @@ And keep the output out of version control — `.gitignore` already excludes `cu
 
 These cost real debugging time. They are in the code as comments too.
 
-- **`epoch='1970-01-01'` is mandatory** in `utide.solve` and `utide.reconstruct`. With any other
-  value the fit still "succeeds" and returns collapsed amplitudes. Silent, total, and hard to
-  spot.
+- **The phase reference must match the synthesis.** V₀ is evaluated once at the series start
+  and `ωt` carries it forward, exactly as `@neaps/tide-predictor` does. Reference it anywhere
+  else and the fit still "succeeds" while returning collapsed amplitudes — silent and total.
+  (The Python predecessor hit the same trap through utide's `epoch` argument.)
 - **IWLS caps a request at 7 days** and documents 3/sec and 30/min. The default 2 s interval
   stays inside the minute limit; going faster works until it doesn't, and a throttled API is
   everyone's problem.
-- **utide's Greenwich phase maps straight through** to the output format — no conversion needed.
+- **Fit and synthesis must come from the same library.** neaps and utide disagree by 180° on
+  M3 and ~5° on 2N2, and at slow-reversing stations that moves slack by many minutes — see
+  [`docs/validation/ts-port.md`](docs/validation/ts-port.md). Harmless while both ends of the
+  round trip are neaps; not harmless if you mix engines.
 - **`floodDirection` comes from CHS `/metadata`** and is occasionally wrong for the actual
   channel axis, which is what produces label flips. Validation catches it; run with
   `--validate-from`.
