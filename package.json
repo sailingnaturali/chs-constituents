@@ -1,0 +1,22 @@
+{
+  "name": "@sailingnaturali/chs-constituents",
+  "version": "0.1.0",
+  "description": "Fit tidal-current harmonic constituents from published predictions, in the browser or on a SignalK server",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@neaps/tide-predictor": "^0.10.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
