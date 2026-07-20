@@ -8,6 +8,10 @@
     "generated": { "type": "string" },
     "trainingDays": { "type": "integer" },
     "trainingStart": { "type": "string" },
+    "validationSource": { "type": "string",
+      "description": "Which harness produced the confidence fields, when, and against what golden window. Emitted automatically when validation runs." },
+    "validationNote": { "type": "string",
+      "description": "The validation definition in force (event set, matching rule, direction test)." },
     "stations": {
       "type": "array",
       "items": {
@@ -27,6 +31,9 @@
             "description": "From out-of-sample validation. 'quarantine' means do not use." },
           "validationMedianMin": { "type": ["number", "null"],
             "description": "Median event-timing error in minutes vs CHS wcp1-events." },
+          "contested": { "type": "boolean",
+            "description": "Hand annotation: independent harnesses disagreed on this station's tier. Not emitted by the pipeline; dropped on regeneration." },
+          "contestedNote": { "type": "string" },
           "constituents": {
             "type": "array",
             "items": {

@@ -351,6 +351,38 @@ def tier(result: dict) -> str:
     return "quarantine"
 
 
+def assemble_bundle(stations: list[dict], training_days: int, training_start: str,
+                    validate_from: str | None, validate_days: int) -> dict:
+    """Build the output bundle, carrying its own validation provenance.
+
+    The tiers travel with a record of who produced them and against which golden
+    window; without that, a regenerated bundle silently sheds the basis for its
+    own confidence fields (which is exactly how the hand-maintained predecessor
+    drifted).
+    """
+    out = {
+        "note": ("Derived from CHS IWLS predictions for personal, non-commercial use. "
+                 "Contains Canadian Hydrographic Service intellectual property; Crown "
+                 "copyright is retained by His Majesty the King in Right of Canada. "
+                 "NOT FOR NAVIGATION. Do not redistribute -- see README.md."),
+        "generated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d"),
+        "trainingDays": training_days,
+        "trainingStart": training_start,
+    }
+    if validate_from:
+        out["validationSource"] = (
+            f"chs-constituents (automated), {out['generated']}, "
+            f"out-of-sample {validate_from}+{validate_days}d vs CHS wcp1-events"
+        )
+        out["validationNote"] = (
+            "Median abs timing error vs nearest same-kind predicted event "
+            f"(cap {MATCH_WINDOW_MIN:.0f} min); direction tested as the sign of "
+            "modelled velocity at CHS extremum times."
+        )
+    out["stations"] = stations
+    return out
+
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -444,16 +476,10 @@ def main(argv=None) -> int:
 
         bundle.append({k: v for k, v in fitted.items() if not k.startswith("_")})
 
-    pathlib.Path(args.output).write_text(json.dumps({
-        "note": ("Derived from CHS IWLS predictions for personal, non-commercial use. "
-                 "Contains Canadian Hydrographic Service intellectual property; Crown "
-                 "copyright is retained by His Majesty the King in Right of Canada. "
-                 "NOT FOR NAVIGATION. Do not redistribute -- see README.md."),
-        "generated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d"),
-        "trainingDays": args.training_days,
-        "trainingStart": args.training_start,
-        "stations": bundle,
-    }, indent=1))
+    pathlib.Path(args.output).write_text(json.dumps(assemble_bundle(
+        bundle, args.training_days, args.training_start,
+        args.validate_from, args.validate_days,
+    ), indent=1))
 
     quarantined = [s["name"] for s in bundle if s.get("confidence") == "quarantine"]
     print(f"\nwrote {args.output} ({len(bundle)} stations)", file=sys.stderr)

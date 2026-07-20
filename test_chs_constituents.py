@@ -126,6 +126,30 @@ def test_tier_thresholds():
         "should quarantine on TIMING, not on a false reversed-axis claim"
 
 
+def test_bundle_carries_validation_provenance():
+    """A validated bundle must say who validated it and against what.
+
+    The hand-maintained predecessor (infrastructure ca-currents.json) carried
+    tiers with no record of which harness produced them, and drifted. The
+    pipeline is the sole producer now, so every regenerated bundle must carry
+    its own attribution -- otherwise regeneration silently erases provenance.
+    """
+    stations = [{"id": "chs-x", "name": "X", "type": "harmonic", "confidence": "high"}]
+
+    validated = cc.assemble_bundle(stations, 180, "2025-07-01",
+                                   validate_from="2026-06-01", validate_days=7)
+    assert "chs-constituents" in validated["validationSource"], validated
+    assert "2026-06-01" in validated["validationSource"]
+    assert validated["validationNote"]
+    assert validated["stations"] == stations
+    assert validated["trainingDays"] == 180
+
+    unvalidated = cc.assemble_bundle(stations, 180, "2025-07-01",
+                                     validate_from=None, validate_days=7)
+    assert "validationSource" not in unvalidated
+    assert "validationNote" not in unvalidated
+
+
 def test_harmonic_roundtrip_recovers_known_amplitude():
     """End-to-end sanity on utide itself, including the epoch convention.
 
