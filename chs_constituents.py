@@ -271,10 +271,10 @@ MATCH_WINDOW_MIN = 180.0
 # reversed. Deliberately high: a genuinely reversed axis disagrees at nearly
 # EVERY extremum, because the error is systematic. Partial disagreement means
 # something else -- usually timing error at a weak, slow-reversing station, where
-# a large median error spends long windows on the wrong side of zero. Juan de
+# a large slack error spends long windows on the wrong side of zero. Juan de
 # Fuca East was false-quarantined at 0.20 (7/27 = 26%) when its axis is correct
-# and documented; its real problem is a 39 min median, which the timing tiers
-# already catch.
+# and documented; its real character is ~17 min extremum timing with ~83 min
+# slack timing, which the split median/slackMedian stats now show honestly.
 FLIP_QUARANTINE = 0.60
 
 
@@ -282,12 +282,19 @@ def validate(station: dict, observed: list[dict], start: dt.datetime, end: dt.da
              significant: float = 0.75) -> dict:
     """Compare predicted events against CHS's own wcp1-events, out of sample.
 
-    Two independent measures, deliberately kept apart:
+    Three independent measures, deliberately kept apart:
 
-    * TIMING -- distance to the nearest predicted event *of the same kind*.
-      Median is the honest headline; max is inflated by CHS's own
-      continuous-vs-event disagreement (15-30 min at complex narrows), which is
-      a property of the source data rather than of this fit.
+    * TIMING -- distance to the nearest predicted event *of the same kind*,
+      extrema only. This is the headline median and what the tier judges; it is
+      also the definition the other harnesses measure, so numbers compare. Max
+      is inflated by CHS's own continuous-vs-event disagreement (15-30 min at
+      complex narrows), a property of the source data rather than of this fit.
+
+    * SLACK TIMING -- same matching, slack events only, reported as slackMedian.
+      Never pooled into the headline: at weak, slow-reversing stations the zero
+      crossing is hypersensitive to small level errors (Juan de Fuca East:
+      ~17 min extrema, ~83 min slacks), and pooling once produced a 39-min
+      "median" no extrema-only harness could reproduce.
 
     * DIRECTION -- the sign of the modelled velocity at the exact moment CHS
       reports maximum flood or ebb. This is the only sound flip test. An earlier
@@ -298,9 +305,17 @@ def validate(station: dict, observed: list[dict], start: dt.datetime, end: dt.da
     """
     predicted = predict_events(station["_solution"], start, end)
     if not predicted:
-        return {"median": None, "max": None, "wrongSign": 0, "extrema": 0, "matched": 0}
+        return {"median": None, "max": None, "slackMedian": None,
+                "wrongSign": 0, "extrema": 0, "matched": 0}
 
-    deltas = []
+    # Slack timing is kept apart from extremum timing. At a weak, slow-reversing
+    # station the zero crossing is hypersensitive to small level errors: Juan de
+    # Fuca East runs ~17 min on extrema but ~83 min on slacks, and pooling them
+    # produced a 39-min median that no extrema-only harness could reproduce.
+    # The headline median -- and the tier -- judge extrema; slack error is real
+    # information about how trustworthy the slack window is, reported separately.
+    deltas: list[float] = []
+    slack_deltas: list[float] = []
     for event in observed:
         # Slacks always count; extrema only when the current is actually running.
         if event["kind"] != "slack" and abs(event["speed"]) < significant:
@@ -312,7 +327,7 @@ def validate(station: dict, observed: list[dict], start: dt.datetime, end: dt.da
         best = min(same_kind, key=lambda p: abs(p["minute"] - when))
         delta = abs(best["minute"] - when)
         if delta <= MATCH_WINDOW_MIN:
-            deltas.append(delta)
+            (slack_deltas if event["kind"] == "slack" else deltas).append(delta)
 
     extrema = [e for e in observed if e["kind"] in ("maxFlood", "maxEbb")]
     wrong_sign = 0
@@ -329,9 +344,10 @@ def validate(station: dict, observed: list[dict], start: dt.datetime, end: dt.da
     return {
         "median": round(float(np.median(deltas)), 1) if deltas else None,
         "max": round(float(np.max(deltas)), 1) if deltas else None,
+        "slackMedian": round(float(np.median(slack_deltas)), 1) if slack_deltas else None,
         "wrongSign": int(wrong_sign),
         "extrema": len(extrema),
-        "matched": len(deltas),
+        "matched": len(deltas) + len(slack_deltas),
     }
 
 
@@ -375,9 +391,11 @@ def assemble_bundle(stations: list[dict], training_days: int, training_start: st
             f"out-of-sample {validate_from}+{validate_days}d vs CHS wcp1-events"
         )
         out["validationNote"] = (
-            "Median abs timing error vs nearest same-kind predicted event "
-            f"(cap {MATCH_WINDOW_MIN:.0f} min); direction tested as the sign of "
-            "modelled velocity at CHS extremum times."
+            "validationMedianMin is the median abs timing error over CHS extrema "
+            f"only, vs the nearest same-kind predicted event (cap {MATCH_WINDOW_MIN:.0f} "
+            "min); slack timing is validationSlackMedianMin, never pooled into the "
+            "headline. Direction tested as the sign of modelled velocity at CHS "
+            "extremum times. Tiers judge extremum timing."
         )
     out["stations"] = stations
     return out
@@ -465,13 +483,15 @@ def main(argv=None) -> int:
             result = validate(fitted, observed, val_start, val_end)
             fitted["confidence"] = tier(result)
             fitted["validationMedianMin"] = result["median"]
+            fitted["validationSlackMedianMin"] = result["slackMedian"]
             reversed_pct = (100 * result["wrongSign"] / result["extrema"]) if result["extrema"] else 0
             flag = (f"  <-- REVERSED AXIS ({result['wrongSign']}/{result['extrema']} extrema)"
                     if reversed_pct >= 100 * FLIP_QUARANTINE else
                     f"  ({result['wrongSign']}/{result['extrema']} wrong sign)"
                     if result["wrongSign"] else "")
-            print(f"  validated: median {result['median']} min, max {result['max']} min, "
-                  f"{result['matched']} events, tier {fitted['confidence']}{flag}",
+            print(f"  validated: median {result['median']} min (slacks {result['slackMedian']}), "
+                  f"max {result['max']} min, {result['matched']} events, "
+                  f"tier {fitted['confidence']}{flag}",
                   file=sys.stderr)
 
         bundle.append({k: v for k, v in fitted.items() if not k.startswith("_")})

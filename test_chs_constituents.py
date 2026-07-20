@@ -120,10 +120,52 @@ def test_tier_thresholds():
     assert cc.tier({"median": 1.0, "wrongSign": 10, "extrema": 20}) == "high"
     # Partial sign disagreement is timing error, not a reversed axis. Juan de
     # Fuca East sits here: 7/27 wrong sign with a correct, documented 090 flood
-    # axis, at a weak slow-reversing station whose real fault is a 39 min median.
+    # axis, at a weak slow-reversing station -- ~17 min on extrema, ~83 min on
+    # slacks (the wrong-side-of-zero windows are what flip the occasional sign).
     assert cc.tier({"median": 10.0, "wrongSign": 7, "extrema": 27}) == "medium"
+    # And a genuinely bad extremum median still quarantines on timing alone.
     assert cc.tier({"median": 39.0, "wrongSign": 7, "extrema": 27}) == "quarantine", \
         "should quarantine on TIMING, not on a false reversed-axis claim"
+
+
+def test_validation_separates_slack_timing_from_extremum_timing():
+    """Slack timing must not pollute the headline median.
+
+    Root cause of the three-harness divergence (audit Q2): at a weak,
+    slow-reversing station (Juan de Fuca East), slack events carry ~83 min
+    error while extrema sit near 17. Pooling them yielded a 39-min median no
+    other harness could reproduce -- the other two measure extrema only. The
+    headline median (and therefore the tier) is extrema-only; slack error is
+    real information about a weak station, so it is reported separately, not
+    discarded.
+    """
+    start = dt.datetime(2026, 6, 1, tzinfo=dt.timezone.utc)
+    end = start + dt.timedelta(days=1)
+    observed = [
+        {"time": "2026-06-01T02:03:00Z", "kind": "maxFlood", "speed": 3.0},
+        {"time": "2026-06-01T08:03:00Z", "kind": "maxEbb", "speed": -3.0},
+        {"time": "2026-06-01T05:20:00Z", "kind": "slack", "speed": 0.0},
+        {"time": "2026-06-01T11:20:00Z", "kind": "slack", "speed": 0.0},
+    ]
+
+    station = {"_solution": None}
+    orig_recon, orig_pred = cc.utide.reconstruct, cc.predict_events
+    cc.utide.reconstruct = lambda t, *a, **k: type("R", (), {"h": np.array([3.0, -3.0])})()
+    # Extrema predicted 3 min early; slacks predicted 80 min early.
+    cc.predict_events = lambda *a, **k: [
+        {"minute": 120, "kind": "maxFlood", "speed": 3.0},
+        {"minute": 480, "kind": "maxEbb", "speed": -3.0},
+        {"minute": 240, "kind": "slack", "speed": 0.0},
+        {"minute": 600, "kind": "slack", "speed": 0.0},
+    ]
+    try:
+        result = cc.validate(station, observed, start, end)
+    finally:
+        cc.utide.reconstruct, cc.predict_events = orig_recon, orig_pred
+
+    assert result["median"] == 3.0, f"headline median must be extrema-only: {result}"
+    assert result["slackMedian"] == 80.0, f"slack error must be reported apart: {result}"
+    assert cc.tier(result) == "high", "tier must judge extremum timing, not slack timing"
 
 
 def test_bundle_carries_validation_provenance():
