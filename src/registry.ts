@@ -13,7 +13,7 @@ interface RegistryEntry {
  * Station identity - which gates exist, what they are called, and which
  * opaque IWLS handle each maps to - is curated once in
  * @sailingnaturali/station-corrections and read by everything that needs it.
- * This repo used to keep its own stations/salish-sea.json, which meant the
+ * This repo used to keep its own local station list, which meant the
  * same three facts lived in two places with nothing reconciling them.
  *
  * The mapping is deliberately not one-to-one:

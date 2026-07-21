@@ -99,7 +99,7 @@ npm run fit -- --training-days 90 --validate-from 2026-06-01
 
 | Flag | Default | Notes |
 |------|---------|-------|
-| `--stations` | `stations/salish-sea.json` | Any `[{id, label}]` list of CHS current stations |
+| `--stations` | the bundled station registry | Any `[{id, label}]` list of CHS current stations |
 | `--training-days` | `210` | Length of the fitted series; below 183 the fit cannot separate K1/P1 |
 | `--training-start` | `2025-07-01` | UTC start of the training series |
 | `--validate-from` | *(off)* | Enables out-of-sample validation and tiering |
@@ -191,10 +191,17 @@ These cost real debugging time. They are in the code as comments too.
 
 ## Station lists
 
-`stations/salish-sea.json` holds the 16 BC tidal gates as `{id, label}`. The IDs are CHS's
-24-hex station identifiers, which you can look up for any station through the
-[IWLS API](https://api-iwls.dfo-mpo.gc.ca/swagger-ui/index.html). To fit somewhere else, write
-your own list in the same shape — the tool has nothing Salish Sea specific in it.
+By default the 19 bundled gates come from the shared
+[`@sailingnaturali/station-corrections`](https://www.npmjs.com/package/@sailingnaturali/station-corrections)
+registry, not a copy kept in this repo — station identity (which gates exist, what they're
+called, which CHS handle each maps to) is curated once there and read by everything that needs
+it. A registry station's public id is a stable `key` that survives label renames.
+`--stations <path>` still takes a `[{id, label}]` file for anything the registry does not cover;
+the tool has nothing Salish Sea specific in it. The IDs are CHS's 24-hex station identifiers,
+which you can look up for any station through the
+[IWLS API](https://api-iwls.dfo-mpo.gc.ca/swagger-ui/index.html). A file-supplied station has no
+registry key, so its id is derived from its label instead (the fallback `slug()` in
+`src/pipeline.ts`).
 
 ## Licence
 
