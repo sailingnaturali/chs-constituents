@@ -116,17 +116,31 @@ linear-phase shortcut is sound.
 *groups* constituents by IHO Annex B nodal-correction code, and constituents sharing a code
 share f/u exactly: M2, N2, 2N2, MU2 and NU2 agree to nine decimals, as do O1 and Q1. utide
 applies Foreman's *satellite-derived per-constituent* factors, where each constituent gets its
-own. The largest split is 2N2: f = 0.965 in neaps (M2's value) against 1.110 in utide, a 13%
-difference, with ~3.6° of phase alongside it. Neither is wrong; grouped is the classical
-approximation and satellite-Foreman the refined one.
+own. The largest split is 2N2: f = 0.965 in neaps (M2's value) against 1.110 in utide —
+**utide's is 15% higher** — with ~3.6° of phase alongside it. Neither is wrong; grouped is the
+classical approximation and satellite-Foreman the refined one.
+
+State the direction when quoting that gap. There is no reference standard to normalise
+against, so the same two numbers read +15% relative to neaps and −13% relative to utide, and a
+bare "13% apart" invites the reader to compute 15% and conclude the doc is wrong. (The figure
+is also date-specific — see the nodal-cycle note below.) The earlier revision of this section
+said "a 13% difference"; **neaps#296 as filed carries that same bare phrasing**, so expect the
+13% framing if it comes back in discussion there.
 
 Be careful with the label here. neaps ships **two** fundamentals sets — `iho` and `schureman` —
 and `correction(astro, fundamentals = fundamentals$2)` defaults to **`iho`**, which is what
 both `fit()` and everything above use. They are not interchangeable: switching to `schureman`
-moves J1 by 7.2% and MF by 5.5%. That intra-library spread is *larger* than several of the
+moves J1 by 7.2% and MF by 5.1%. That intra-library spread is *larger* than several of the
 neaps-versus-utide gaps this section is about — J1 differs by 7.2% between neaps' own two modes
 against 1.5% between neaps and utide — which is a useful reminder that "which nodal convention"
 is a bigger lever than "which library".
+
+**Nodal-cycle note: every f/u figure in this section is a value at a date, not a constant.**
+f and u track the 18.6-year regression of the lunar nodes, which is the entire reason they
+exist. The numbers above are evaluated at **2025-12-28**, the validation-window date. The same
+2N2 comparison six months earlier reads 0.964 against 1.075, +11.5% rather than +15%. So pin
+the date when quoting a nodal factor, and pin the *same* date on both sides of a cross-library
+comparison — otherwise you are diffing the calendar, not the libraries.
 
 That is also why the ablation found no culprit. The disagreement is spread thin across 2N2,
 M2, MM, J1 and N2 with no dominant term, so dropping constituents one at a time could never
