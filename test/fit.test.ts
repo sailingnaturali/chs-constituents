@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createTidePredictor } from "@neaps/tide-predictor";
 import { fit, type Sample } from "../src/fit.js";
+import { IwlsClient } from "../src/client.js";
+import { fitStation } from "../src/pipeline.js";
 
 /**
  * A plausible Salish current station: a strong semidiurnal pair, the diurnals
@@ -93,5 +95,70 @@ describe("fit", () => {
 
   it("rejects an unknown constituent by name", () => {
     expect(() => fit(synthesise(30), { constituents: ["M2", "NOPE"] })).toThrow(/NOPE/);
+  });
+});
+
+/**
+ * A fitStation-ready stand-in for IwlsClient. Mirrors client.test.ts's
+ * offlineClient: a real IwlsClient with `.get` replaced, so series()'s own
+ * chunking/caching logic still runs and only the network call is faked. This
+ * keeps working if IwlsClient's internals change, unlike a hand-rolled object
+ * literal that duplicates its shape.
+ *
+ * `.get` serves both the metadata call and the wcsp1/wcdp1 data calls from
+ * the same TRUTH tide predictor used above, evaluated over whatever date
+ * range the request actually asks for (`series()` anchors chunks to the
+ * epoch grid, not to a fixed date) - so fitStation always sees a full,
+ * fittable series regardless of the `start`/`days` a test passes in.
+ */
+function fakeClient(): IwlsClient {
+  const predictor = createTidePredictor(TRUTH);
+  const client = new IwlsClient({ requestIntervalMs: 0 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (client as any).get = async (path: string) => {
+    if (path.includes("/metadata")) {
+      return { floodDirection: 0, ebbDirection: 180, latitude: 0, longitude: 0 };
+    }
+    const code = /time-series-code=([^&]+)/.exec(path)![1];
+    const from = new Date(/from=([^&]+)/.exec(path)![1]);
+    const to = new Date(/to=([^&]+)/.exec(path)![1]);
+    return predictor.getTimelinePrediction({ start: from, end: to, timeFidelity: 900 }).map((point) => ({
+      eventDate: point.time.toISOString(),
+      // floodDirection is 0 above, so wcdp1 only needs to carry the sign:
+      // fetchProjectedSeries' cos(heading - floodDirection) then reconstructs
+      // the signed wcsp1 value exactly from magnitude + heading.
+      value: code === "wcsp1" ? Math.abs(point.level) : point.level >= 0 ? 0 : 180,
+    }));
+  };
+  return client;
+}
+
+describe("fitStation station id", () => {
+  const options = { start: new Date("2025-07-01T00:00:00Z"), days: 30 };
+
+  it("uses the registry key as the fitted id when one is given", async () => {
+    const station = { id: "63aef1866a2b9417c035030f", label: "Dodd Narrows", key: "chs-dodd-narrows" };
+    const result = await fitStation(fakeClient(), station, options);
+    expect(result?.id).toBe("chs-dodd-narrows");
+    expect(result?.name).toBe("Dodd Narrows");
+  });
+
+  it("falls back to the derived slug for a station with no key", async () => {
+    // A user-supplied --stations list has no registry key. This path must stay.
+    const station = { id: "63aef1866a2b9417c035030f", label: "Dodd Narrows" };
+    const result = await fitStation(fakeClient(), station, options);
+    expect(result?.id).toBe("chs-dodd-narrows");
+  });
+
+  it("a renamed label cannot move a keyed station's id", async () => {
+    // The point of the key: display name and public id are decoupled.
+    const station = {
+      id: "63aef1866a2b9417c035030f",
+      label: "Dodd Narrows (north end)",
+      key: "chs-dodd-narrows",
+    };
+    const result = await fitStation(fakeClient(), station, options);
+    expect(result?.id).toBe("chs-dodd-narrows");
+    expect(result?.name).toBe("Dodd Narrows (north end)");
   });
 });
