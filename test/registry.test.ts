@@ -1,6 +1,32 @@
 import { describe, it, expect } from "vitest";
 import { registryStations, mapRegistry } from "../src/registry.js";
 
+// The full set of public ids the registry currently hands out, pinned so a
+// future rename of a registry *key* (a breaking change for every consumer -
+// it's the fitted station id) fails a test instead of shipping silently.
+// Captured from the built loader, not typed from memory.
+const EXPECTED_KEYS = [
+  "chs-active-pass",
+  "chs-arran-rapids",
+  "chs-beazley-passage",
+  "chs-blackney-passage",
+  "chs-dent-rapids",
+  "chs-dodd-narrows",
+  "chs-first-narrows",
+  "chs-gabriola-passage",
+  "chs-gillard-passage",
+  "chs-hole-in-the-wall",
+  "chs-johnstone-strait-central",
+  "chs-juan-de-fuca-east",
+  "chs-porlier-pass",
+  "chs-race-passage",
+  "chs-sechelt-rapids",
+  "chs-second-narrows",
+  "chs-seymour-narrows",
+  "chs-tillicum-bridge",
+  "chs-weynton-passage",
+];
+
 describe("registryStations", () => {
   it("returns the bundled CHS gates as StationRefs", () => {
     const stations = registryStations();
@@ -11,6 +37,13 @@ describe("registryStations", () => {
     // `id` is what the IWLS API is called with - the provider's own handle,
     // not the registry key.
     expect(dodd!.id).toBe("63aef1866a2b9417c035030f");
+  });
+
+  it("keeps the public ids stable - a registry key rename would break every consumer", () => {
+    const keys = registryStations()
+      .map((s) => s.key)
+      .sort();
+    expect(keys).toEqual(EXPECTED_KEYS);
   });
 
   it("only returns stations for the requested provider", () => {

@@ -195,7 +195,9 @@ By default the 19 bundled gates come from the shared
 [`@sailingnaturali/station-corrections`](https://www.npmjs.com/package/@sailingnaturali/station-corrections)
 registry, not a copy kept in this repo — station identity (which gates exist, what they're
 called, which CHS handle each maps to) is curated once there and read by everything that needs
-it. A registry station's public id is a stable `key` that survives label renames.
+it. A registry station's public id is a stable `key` that survives label renames. That
+dependency carries identifiers and hand-written names, not CHS predictions or constituents, so
+depending on it does not cross the line drawn above.
 `--stations <path>` still takes a `[{id, label}]` file for anything the registry does not cover;
 the tool has nothing Salish Sea specific in it. The IDs are CHS's 24-hex station identifiers,
 which you can look up for any station through the

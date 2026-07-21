@@ -137,9 +137,12 @@ describe("fitStation station id", () => {
   const options = { start: new Date("2025-07-01T00:00:00Z"), days: 30 };
 
   it("uses the registry key as the fitted id when one is given", async () => {
-    const station = { id: "63aef1866a2b9417c035030f", label: "Dodd Narrows", key: "chs-dodd-narrows" };
+    // key deliberately does not equal slug(label) - if fitStation ever
+    // ignored station.key and fell through to the derived slug, this
+    // would catch it; "chs-dodd-narrows" would not have.
+    const station = { id: "63aef1866a2b9417c035030f", label: "Dodd Narrows", key: "chs-dn-legacy" };
     const result = await fitStation(fakeClient(), station, options);
-    expect(result?.id).toBe("chs-dodd-narrows");
+    expect(result?.id).toBe("chs-dn-legacy");
     expect(result?.name).toBe("Dodd Narrows");
   });
 

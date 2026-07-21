@@ -73,6 +73,15 @@ You must run this yourself; the output cannot be redistributed. See README.md.
   let stations: StationRef[] = stationsPath
     ? JSON.parse(await readFile(stationsPath, "utf8"))
     : registryStations();
+  if (!stations.length) {
+    console.error(
+      stationsPath
+        ? `No stations in ${stationsPath}`
+        : "No stations returned by the registry (check @sailingnaturali/station-corrections " +
+            "is installed and its provider field still matches)",
+    );
+    return 1;
+  }
   if (only.length) {
     stations = stations.filter((s) => only.some((w) => s.label.toLowerCase().includes(w)));
     if (!stations.length) {
@@ -123,6 +132,11 @@ You must run this yourself; the output cannot be redistributed. See README.md.
       "sign of modelled velocity at CHS extremum times. Tiers judge extremum timing.";
   }
   bundle.stations = fitted;
+
+  if (!fitted.length) {
+    console.error("No stations were fitted — leaving the existing output untouched");
+    return 1;
+  }
 
   await writeFile(outputPath, JSON.stringify(bundle, null, 2));
   console.error(`\nwrote ${outputPath} — ${fitted.length} stations`);
