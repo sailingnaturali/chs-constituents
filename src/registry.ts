@@ -44,7 +44,9 @@ export function mapRegistry(data: Record<string, RegistryEntry>, provider: strin
       // wrong fitted id. That is exactly the "quiet wrongness" this registry
       // read is supposed to prevent, so refuse loudly at the source instead
       // of letting it surface three layers away in a published bundle.
-      if (!key || !entry.name || !entry.providerId) {
+      // Trimmed, because a whitespace-only providerId is falsy to nobody and
+      // would still be handed to IwlsClient as a station handle.
+      if (!key?.trim() || !entry.name?.trim() || !entry.providerId?.trim()) {
         throw new Error(`registry entry ${JSON.stringify(key)} has an empty key, name, or providerId`);
       }
       return { id: entry.providerId, label: entry.name, key };
