@@ -25,6 +25,15 @@ const MIN_AMPLITUDE = 0.003;
 export interface StationRef {
   id: string;
   label: string;
+  /**
+   * Stable public id from the station registry, when this station came from
+   * there. Preferred over `slug(label)` because it does not move when a
+   * display name is edited - deriving the public id from the label meant a
+   * rename silently rekeyed the station for every consumer.
+   *
+   * Absent for a user-supplied --stations list, which still derives.
+   */
+  key?: string;
 }
 
 export interface FittedStation {
@@ -94,7 +103,7 @@ export async function fitStation(
   onProgress(`  ${constituents.length} constituents, RMS ${result.rms.toFixed(3)} kn`);
 
   const fitted: FittedStation = {
-    id: slug(station.label),
+    id: station.key ?? slug(station.label),
     name: station.label,
     type: "harmonic",
     source: "chs-derived",

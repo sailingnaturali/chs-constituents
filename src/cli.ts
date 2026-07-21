@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { IwlsClient, type ChunkCache } from "./client.js";
 import { fitStation, type FittedStation, type StationRef } from "./pipeline.js";
+import { registryStations } from "./registry.js";
 import { MATCH_WINDOW_MIN } from "./validate.js";
 
 const NOTE =
@@ -39,7 +40,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
 You must run this yourself; the output cannot be redistributed. See README.md.
 
-  --stations <path>       JSON list of {id, label} (default: stations/salish-sea.json)
+  --stations <path>       JSON list of {id, label} (default: the bundled station registry)
   --output <path>         Bundle path (default: currents.json)
   --training-days <n>     Series length (default: 210 — see Rayleigh note in pipeline.ts)
   --training-start <date> UTC start, YYYY-MM-DD (default: 2025-07-01)
@@ -52,7 +53,7 @@ You must run this yourself; the output cannot be redistributed. See README.md.
     return 0;
   }
 
-  const stationsPath = arg(argv, "stations", "stations/salish-sea.json")!;
+  const stationsPath = arg(argv, "stations");
   const outputPath = arg(argv, "output", "currents.json")!;
   const trainingDays = Number(arg(argv, "training-days", "210"));
   const trainingStart = arg(argv, "training-start", "2025-07-01")!;
@@ -66,7 +67,21 @@ You must run this yourself; the output cannot be redistributed. See README.md.
     return acc;
   }, []);
 
-  let stations: StationRef[] = JSON.parse(await readFile(stationsPath, "utf8"));
+  // Default to the shared registry; --stations still takes a file for
+  // stations it does not cover. A file-supplied station has no registry key,
+  // so its public id is still derived from its label (see pipeline.ts).
+  let stations: StationRef[] = stationsPath
+    ? JSON.parse(await readFile(stationsPath, "utf8"))
+    : registryStations();
+  if (!stations.length) {
+    console.error(
+      stationsPath
+        ? `No stations in ${stationsPath}`
+        : "No stations returned by the registry (check @sailingnaturali/station-corrections " +
+            "is installed and its provider field still matches)",
+    );
+    return 1;
+  }
   if (only.length) {
     stations = stations.filter((s) => only.some((w) => s.label.toLowerCase().includes(w)));
     if (!stations.length) {
@@ -117,6 +132,11 @@ You must run this yourself; the output cannot be redistributed. See README.md.
       "sign of modelled velocity at CHS extremum times. Tiers judge extremum timing.";
   }
   bundle.stations = fitted;
+
+  if (!fitted.length) {
+    console.error("No stations were fitted — leaving the existing output untouched");
+    return 1;
+  }
 
   await writeFile(outputPath, JSON.stringify(bundle, null, 2));
   console.error(`\nwrote ${outputPath} — ${fitted.length} stations`);

@@ -4,6 +4,9 @@
   "description": "Fit tidal-current harmonic constituents from published predictions, in the browser or on a SignalK server",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=20.10.0"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -21,7 +24,8 @@
     "fit": "tsc && node dist/cli.js"
   },
   "dependencies": {
-    "@neaps/tide-predictor": "^0.10.0"
+    "@neaps/tide-predictor": "^0.10.0",
+    "@sailingnaturali/station-corrections": "^1.4.1"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
