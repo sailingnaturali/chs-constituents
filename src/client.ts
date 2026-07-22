@@ -36,6 +36,39 @@ export interface StationMetadata {
   longitude: number;
 }
 
+/** A station as the IWLS /stations index lists it, trimmed to what we use. */
+export interface IwlsStation {
+  id: string;
+  officialName: string;
+  latitude: number;
+  longitude: number;
+  operating: boolean;
+}
+
+/** The raw /stations element shape — only the fields we read. */
+interface RawStation {
+  id: string;
+  officialName: string;
+  latitude: number;
+  longitude: number;
+  operating: boolean;
+  timeSeries?: { code: string }[];
+}
+
+/**
+ * Keep only current stations: those that publish a water-current speed series
+ * (`wcsp1`), which `fetchProjectedSeries` needs. Of ~1570 IWLS stations only
+ * ~30 are current stations; the rest are water-level and have no wcsp1/wcdp1
+ * to project onto a flood axis.
+ */
+export function currentStations(raw: RawStation[]): IwlsStation[] {
+  return raw
+    .filter((s) => (s.timeSeries ?? []).some((t) => t.code === "wcsp1"))
+    .map(({ id, officialName, latitude, longitude, operating }) => ({
+      id, officialName, latitude, longitude, operating,
+    }));
+}
+
 /** A CHS event as published, already normalised to signed along-axis speed. */
 export interface ObservedEvent {
   time: string;
@@ -121,6 +154,11 @@ export class IwlsClient {
 
   async metadata(stationId: string): Promise<StationMetadata> {
     return this.get<StationMetadata>(`stations/${stationId}/metadata`);
+  }
+
+  /** Every CHS current station, live from the IWLS index. */
+  async stations(): Promise<IwlsStation[]> {
+    return currentStations(await this.get<RawStation[]>("stations"));
   }
 
   /** A continuous time series, fetched in cached 7-day chunks. */
