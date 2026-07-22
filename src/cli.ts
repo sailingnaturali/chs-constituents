@@ -54,8 +54,12 @@ You must run this yourself; the output cannot be redistributed. See README.md.
       onProgress: (message) => console.error(message),
     });
   } catch (e) {
-    console.error((e as Error).message);
-    console.error("No stations were fitted — leaving the existing output untouched");
+    const msg = (e as Error).message;
+    console.error(
+      msg === "No stations were fitted"
+        ? "No stations were fitted — leaving the existing output untouched"
+        : msg,
+    );
     return 1;
   }
 
