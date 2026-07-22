@@ -13,7 +13,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./build": {
+      "types": "./dist/build.d.ts",
+      "import": "./dist/build.js"
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist"
@@ -25,7 +32,7 @@
   },
   "dependencies": {
     "@neaps/tide-predictor": "^0.10.0",
-    "@sailingnaturali/station-corrections": "^1.4.1"
+    "@sailingnaturali/station-corrections": "^2.0.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
