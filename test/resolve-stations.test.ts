@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,6 +43,18 @@ describe("resolveStations", () => {
     await expect(resolveStations(client, { only: ["xyz"] })).rejects.toThrow(
       /No stations matched --only/,
     );
+  });
+
+  it("warns when a curated gate matches no live station (name drift)", async () => {
+    const client = clientWith([
+      { id: "a", officialName: "Active Pass", latitude: 0, longitude: 0, operating: true },
+    ]);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await resolveStations(client, { only: [] });
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringMatching(/registry gate chs-dodd-narrows found no live IWLS station/),
+    );
+    spy.mockRestore();
   });
 
   describe("with a --stations file", () => {

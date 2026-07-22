@@ -44,9 +44,23 @@ export async function resolveStations(
   client: IwlsClient,
   opts: { stationsFile?: string; only: string[] },
 ): Promise<StationRef[]> {
-  let stations: StationRef[] = opts.stationsFile
-    ? JSON.parse(await readFile(opts.stationsFile, "utf8"))
-    : stationsFromApi(await client.stations(), registryOverlay());
+  let stations: StationRef[];
+  if (opts.stationsFile) {
+    stations = JSON.parse(await readFile(opts.stationsFile, "utf8"));
+  } else {
+    const overlay = registryOverlay();
+    stations = stationsFromApi(await client.stations(), overlay);
+    // The curated key<->station link is a name match now. Warn on any curated
+    // gate that matched no live station, so an IWLS rename (or an edited
+    // registry name) surfaces here instead of silently rekeying the gate to
+    // slug(officialName) for every downstream consumer.
+    const matchedKeys = new Set(stations.map((s) => s.key).filter(Boolean));
+    for (const { key } of overlay.values()) {
+      if (!matchedKeys.has(key)) {
+        console.error(`registry gate ${key} found no live IWLS station (name drift?)`);
+      }
+    }
+  }
   if (!stations.length) {
     throw new Error(
       opts.stationsFile
