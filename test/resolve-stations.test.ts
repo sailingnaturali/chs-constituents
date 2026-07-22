@@ -52,6 +52,14 @@ describe("resolveStations", () => {
       await rm(file, { force: true });
     });
 
+    it("rejects with the empty-file message when the file is empty", async () => {
+      await writeFile(file, JSON.stringify([]));
+      const client = clientWith([]);
+      await expect(
+        resolveStations(client, { stationsFile: file, only: [] }),
+      ).rejects.toThrow(/No stations in /);
+    });
+
     it("rejects with the --only message when the file has entries but none match", async () => {
       await writeFile(file, JSON.stringify([{ id: "a", label: "Dodd Narrows" }]));
       const client = clientWith([]);
