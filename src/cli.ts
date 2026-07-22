@@ -47,8 +47,16 @@ export async function resolveStations(
   let stations: StationRef[] = opts.stationsFile
     ? JSON.parse(await readFile(opts.stationsFile, "utf8"))
     : stationsFromApi(await client.stations(), registryOverlay());
+  if (!stations.length) {
+    throw new Error(
+      opts.stationsFile
+        ? `No stations in ${opts.stationsFile}`
+        : "No current stations returned by IWLS (check network / api-iwls.dfo-mpo.gc.ca)",
+    );
+  }
   if (opts.only.length) {
     stations = stations.filter((s) => opts.only.some((w) => s.label.toLowerCase().includes(w)));
+    if (!stations.length) throw new Error("No stations matched --only");
   }
   return stations;
 }
@@ -96,15 +104,11 @@ You must run this yourself; the output cannot be redistributed. See README.md.
     onProgress: (message) => console.error(`  ${message}`),
   });
 
-  const stations = await resolveStations(client, { stationsFile: stationsPath, only });
-  if (!stations.length) {
-    console.error(
-      stationsPath
-        ? `No stations in ${stationsPath}`
-        : only.length
-          ? "No stations matched --only"
-          : "No current stations returned by IWLS (check network / api-iwls.dfo-mpo.gc.ca)",
-    );
+  let stations: StationRef[];
+  try {
+    stations = await resolveStations(client, { stationsFile: stationsPath, only });
+  } catch (e) {
+    console.error((e as Error).message);
     return 1;
   }
 
