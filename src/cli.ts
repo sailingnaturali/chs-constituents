@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { IwlsClient, type ChunkCache } from "./client.js";
 import { fitStation, type FittedStation, type StationRef } from "./pipeline.js";
-import { registryStations } from "./registry.js";
+import { registryOverlay, stationsFromApi } from "./registry.js";
 import { MATCH_WINDOW_MIN } from "./validate.js";
 
 const NOTE =
@@ -33,6 +34,25 @@ function arg(argv: string[], name: string, fallback?: string): string | undefine
   return at === -1 ? fallback : argv[at + 1];
 }
 
+/**
+ * The station list to fit. Defaults to every live CHS current station from the
+ * IWLS index, with names/keys overlaid from the shared registry; `--stations`
+ * still takes a `{id,label}[]` file for stations the index or overlay misses.
+ * `--only` filters by (overlaid) label substring.
+ */
+export async function resolveStations(
+  client: IwlsClient,
+  opts: { stationsFile?: string; only: string[] },
+): Promise<StationRef[]> {
+  let stations: StationRef[] = opts.stationsFile
+    ? JSON.parse(await readFile(opts.stationsFile, "utf8"))
+    : stationsFromApi(await client.stations(), registryOverlay());
+  if (opts.only.length) {
+    stations = stations.filter((s) => opts.only.some((w) => s.label.toLowerCase().includes(w)));
+  }
+  return stations;
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (argv.includes("--help")) {
     console.log(
@@ -40,7 +60,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
 You must run this yourself; the output cannot be redistributed. See README.md.
 
-  --stations <path>       JSON list of {id, label} (default: the bundled station registry)
+  --stations <path>       JSON list of {id, label} to fit instead of the live
+                          IWLS index (default: every live CHS current station,
+                          names improved via @sailingnaturali/station-corrections)
   --output <path>         Bundle path (default: currents.json)
   --training-days <n>     Series length (default: 210 — see Rayleigh note in pipeline.ts)
   --training-start <date> UTC start, YYYY-MM-DD (default: 2025-07-01)
@@ -67,35 +89,24 @@ You must run this yourself; the output cannot be redistributed. See README.md.
     return acc;
   }, []);
 
-  // Default to the shared registry; --stations still takes a file for
-  // stations it does not cover. A file-supplied station has no registry key,
-  // so its public id is still derived from its label (see pipeline.ts).
-  let stations: StationRef[] = stationsPath
-    ? JSON.parse(await readFile(stationsPath, "utf8"))
-    : registryStations();
-  if (!stations.length) {
-    console.error(
-      stationsPath
-        ? `No stations in ${stationsPath}`
-        : "No stations returned by the registry (check @sailingnaturali/station-corrections " +
-            "is installed and its provider field still matches)",
-    );
-    return 1;
-  }
-  if (only.length) {
-    stations = stations.filter((s) => only.some((w) => s.label.toLowerCase().includes(w)));
-    if (!stations.length) {
-      console.error("No stations matched --only");
-      return 1;
-    }
-  }
-
   const client = new IwlsClient({
     cache: fileCache(cacheDir),
     requestIntervalMs: requestInterval * 1000,
     userAgent: "chs-constituents/1.0",
     onProgress: (message) => console.error(`  ${message}`),
   });
+
+  const stations = await resolveStations(client, { stationsFile: stationsPath, only });
+  if (!stations.length) {
+    console.error(
+      stationsPath
+        ? `No stations in ${stationsPath}`
+        : only.length
+          ? "No stations matched --only"
+          : "No current stations returned by IWLS (check network / api-iwls.dfo-mpo.gc.ca)",
+    );
+    return 1;
+  }
 
   const start = new Date(`${trainingStart}T00:00:00Z`);
   const fitted: FittedStation[] = [];
@@ -143,4 +154,6 @@ You must run this yourself; the output cannot be redistributed. See README.md.
   return 0;
 }
 
-main().then((code) => process.exit(code));
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().then((code) => process.exit(code));
+}
