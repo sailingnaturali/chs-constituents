@@ -1,78 +1,15 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { IwlsClient, type ChunkCache } from "./client.js";
-import { fitStation, type FittedStation, type StationRef } from "./pipeline.js";
-import { registryOverlay, stationsFromApi } from "./registry.js";
-import { MATCH_WINDOW_MIN } from "./validate.js";
+import { buildBundle } from "./build.js";
 
-const NOTE =
-  "Derived from CHS IWLS predictions for personal, non-commercial use. Contains " +
-  "Canadian Hydrographic Service intellectual property; Crown copyright is retained " +
-  "by His Majesty the King in Right of Canada. NOT FOR NAVIGATION. Do not " +
-  "redistribute — see README.md.";
-
-function fileCache(dir: string): ChunkCache {
-  return {
-    async read(key) {
-      try {
-        return await readFile(join(dir, key), "utf8");
-      } catch {
-        return null;
-      }
-    },
-    async write(key, value) {
-      await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, key), value);
-    },
-  };
-}
+// Re-exported so the Phase 1 test (test/resolve-stations.test.ts) keeps importing
+// it from "./cli.js" while the implementation now lives in build.ts.
+export { resolveStations } from "./build.js";
 
 function arg(argv: string[], name: string, fallback?: string): string | undefined {
   const at = argv.indexOf(`--${name}`);
   return at === -1 ? fallback : argv[at + 1];
-}
-
-/**
- * The station list to fit. Defaults to every live CHS current station from the
- * IWLS index, with names/keys overlaid from the shared registry; `--stations`
- * still takes a `{id,label}[]` file for stations the index or overlay misses.
- * `--only` filters by (overlaid) label substring.
- */
-export async function resolveStations(
-  client: IwlsClient,
-  opts: { stationsFile?: string; only: string[] },
-): Promise<StationRef[]> {
-  let stations: StationRef[];
-  if (opts.stationsFile) {
-    stations = JSON.parse(await readFile(opts.stationsFile, "utf8"));
-  } else {
-    const overlay = registryOverlay();
-    stations = stationsFromApi(await client.stations(), overlay);
-    // The curated key<->station link is a name match now. Warn on any curated
-    // gate that matched no live station, so an IWLS rename (or an edited
-    // registry name) surfaces here instead of silently rekeying the gate to
-    // slug(officialName) for every downstream consumer.
-    const matchedKeys = new Set(stations.map((s) => s.key).filter(Boolean));
-    for (const { key } of overlay.values()) {
-      if (!matchedKeys.has(key)) {
-        console.error(`registry gate ${key} found no live IWLS station (name drift?)`);
-      }
-    }
-  }
-  if (!stations.length) {
-    throw new Error(
-      opts.stationsFile
-        ? `No stations in ${opts.stationsFile}`
-        : "No current stations returned by IWLS (check network / api-iwls.dfo-mpo.gc.ca)",
-    );
-  }
-  if (opts.only.length) {
-    stations = stations.filter((s) => opts.only.some((w) => s.label.toLowerCase().includes(w)));
-    if (!stations.length) throw new Error("No stations matched --only");
-  }
-  return stations;
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -97,78 +34,33 @@ You must run this yourself; the output cannot be redistributed. See README.md.
     return 0;
   }
 
-  const stationsPath = arg(argv, "stations");
   const outputPath = arg(argv, "output", "currents.json")!;
-  const trainingDays = Number(arg(argv, "training-days", "210"));
-  const trainingStart = arg(argv, "training-start", "2025-07-01")!;
-  const validateFrom = arg(argv, "validate-from");
-  const validateDays = Number(arg(argv, "validate-days", "7"));
-  const cacheDir = arg(argv, "cache-dir", ".cache")!;
-  const requestInterval = Number(arg(argv, "request-interval", "2.5"));
-
   const only = argv.reduce<string[]>((acc, value, i) => {
     if (value === "--only") acc.push(argv[i + 1].toLowerCase());
     return acc;
   }, []);
 
-  const client = new IwlsClient({
-    cache: fileCache(cacheDir),
-    requestIntervalMs: requestInterval * 1000,
-    userAgent: "chs-constituents/1.0",
-    onProgress: (message) => console.error(`  ${message}`),
-  });
-
-  let stations: StationRef[];
+  let bundle: Record<string, unknown>;
   try {
-    stations = await resolveStations(client, { stationsFile: stationsPath, only });
+    bundle = await buildBundle({
+      stationsFile: arg(argv, "stations"),
+      only,
+      trainingDays: Number(arg(argv, "training-days", "210")),
+      trainingStart: arg(argv, "training-start", "2025-07-01")!,
+      validateFrom: arg(argv, "validate-from"),
+      validateDays: Number(arg(argv, "validate-days", "7")),
+      cacheDir: arg(argv, "cache-dir", ".cache")!,
+      requestIntervalMs: Number(arg(argv, "request-interval", "2.5")) * 1000,
+      onProgress: (message) => console.error(message),
+    });
   } catch (e) {
     console.error((e as Error).message);
-    return 1;
-  }
-
-  const start = new Date(`${trainingStart}T00:00:00Z`);
-  const fitted: FittedStation[] = [];
-  for (const station of stations) {
-    console.error(`${station.label} …`);
-    try {
-      const result = await fitStation(client, station, {
-        start,
-        days: trainingDays,
-        validateFrom: validateFrom ? new Date(`${validateFrom}T00:00:00Z`) : undefined,
-        validateDays,
-        onProgress: (message) => console.error(message),
-      });
-      if (result) fitted.push(result);
-    } catch (error) {
-      console.error(`  FAILED: ${(error as Error).message}`);
-    }
-  }
-
-  const bundle: Record<string, unknown> = {
-    note: NOTE,
-    generated: new Date().toISOString().slice(0, 10),
-    trainingDays,
-    trainingStart,
-  };
-  if (validateFrom) {
-    bundle.validationSource =
-      `chs-constituents (automated), ${bundle.generated}, ` +
-      `out-of-sample ${validateFrom}+${validateDays}d vs CHS wcp1-events`;
-    bundle.validationNote =
-      "median is the median absolute timing error over CHS extrema only, vs the " +
-      `nearest same-kind predicted event (cap ${MATCH_WINDOW_MIN} min); slack timing ` +
-      "is slackMedian, never pooled into the headline. Direction is tested as the " +
-      "sign of modelled velocity at CHS extremum times. Tiers judge extremum timing.";
-  }
-  bundle.stations = fitted;
-
-  if (!fitted.length) {
     console.error("No stations were fitted — leaving the existing output untouched");
     return 1;
   }
 
   await writeFile(outputPath, JSON.stringify(bundle, null, 2));
-  console.error(`\nwrote ${outputPath} — ${fitted.length} stations`);
+  console.error(`\nwrote ${outputPath} — ${(bundle.stations as unknown[]).length} stations`);
   return 0;
 }
 
