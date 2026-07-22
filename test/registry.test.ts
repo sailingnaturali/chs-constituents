@@ -1,83 +1,64 @@
 import { describe, it, expect } from "vitest";
-import { registryStations, mapRegistry } from "../src/registry.js";
+import { normalizeName, registryOverlay, stationsFromApi } from "../src/registry.js";
 
-// The full set of public ids the registry currently hands out, pinned so a
-// future rename of a registry *key* (a breaking change for every consumer -
-// it's the fitted station id) fails a test instead of shipping silently.
-// Captured from the built loader, not typed from memory.
-const EXPECTED_KEYS = [
-  "chs-active-pass",
-  "chs-arran-rapids",
-  "chs-beazley-passage",
-  "chs-blackney-passage",
-  "chs-dent-rapids",
-  "chs-dodd-narrows",
-  "chs-first-narrows",
-  "chs-gabriola-passage",
-  "chs-gillard-passage",
-  "chs-hole-in-the-wall",
-  "chs-johnstone-strait-central",
-  "chs-juan-de-fuca-east",
-  "chs-porlier-pass",
-  "chs-race-passage",
-  "chs-sechelt-rapids",
-  "chs-second-narrows",
-  "chs-seymour-narrows",
-  "chs-tillicum-bridge",
-  "chs-weynton-passage",
-];
+describe("normalizeName", () => {
+  it("folds case, punctuation and spacing so provider names match curated ones", () => {
+    expect(normalizeName("DODD NARROWS")).toBe("dodd narrows");
+    expect(normalizeName("Hole in the Wall")).toBe("hole in the wall");
+    expect(normalizeName("Juan de Fuca - East")).toBe("juan de fuca east");
+  });
+});
 
-describe("registryStations", () => {
-  it("returns the bundled CHS gates as StationRefs", () => {
-    const stations = registryStations();
-    expect(stations.length).toBeGreaterThanOrEqual(19);
-    const dodd = stations.find((s) => s.key === "chs-dodd-narrows");
-    expect(dodd).toBeDefined();
-    expect(dodd!.label).toBe("Dodd Narrows");
-    // `id` is what the IWLS API is called with - the provider's own handle,
-    // not the registry key.
-    expect(dodd!.id).toBe("63aef1866a2b9417c035030f");
+describe("registryOverlay", () => {
+  it("keys entries by normalized name and reads no id at all", () => {
+    // No providerId field anywhere — proves the overlay is forward-compatible
+    // with the registry dropping providerId in Phase 2.
+    const overlay = registryOverlay(
+      { "chs-dodd-narrows": { name: "Dodd Narrows", provider: "chs" } },
+      "chs",
+    );
+    expect(overlay.get("dodd narrows")).toEqual({ key: "chs-dodd-narrows", label: "Dodd Narrows" });
   });
 
-  it("keeps the public ids stable - a registry key rename would break every consumer", () => {
-    const keys = registryStations()
-      .map((s) => s.key)
-      .sort();
-    expect(keys).toEqual(EXPECTED_KEYS);
+  it("only includes the requested provider", () => {
+    const overlay = registryOverlay(
+      { "chs-x": { name: "X", provider: "chs" }, "noaa-y": { name: "Y", provider: "noaa" } },
+      "chs",
+    );
+    expect([...overlay.keys()]).toEqual(["x"]);
   });
 
-  it("only returns stations for the requested provider", () => {
-    for (const station of registryStations("chs")) {
-      expect(station.key!.startsWith("chs-")).toBe(true);
-    }
-    expect(registryStations("nonexistent")).toEqual([]);
+  it("refuses an entry with an empty key or name", () => {
+    expect(() => registryOverlay({ "": { name: "X", provider: "chs" } })).toThrow(/empty/);
+    expect(() => registryOverlay({ "chs-x": { name: "", provider: "chs" } })).toThrow(/empty/);
   });
 
-  it("every station has the three fields the pipeline needs", () => {
-    for (const station of registryStations()) {
-      expect(typeof station.id).toBe("string");
-      expect(station.id.length).toBeGreaterThan(0);
-      expect(typeof station.label).toBe("string");
-      expect(station.label.length).toBeGreaterThan(0);
-      expect(typeof station.key).toBe("string");
-    }
+  it("includes the real bundled CHS gates (guards a silent rename)", () => {
+    const overlay = registryOverlay();
+    expect(overlay.get("dodd narrows")?.key).toBe("chs-dodd-narrows");
+    expect(overlay.size).toBeGreaterThanOrEqual(19);
+  });
+});
+
+describe("stationsFromApi", () => {
+  const overlay = registryOverlay(
+    { "chs-dodd-narrows": { name: "Dodd Narrows", provider: "chs" } },
+    "chs",
+  );
+
+  it("takes id from the live station, key+label from the overlay when the name matches", () => {
+    const refs = stationsFromApi(
+      [{ id: "63aef1866a2b9417c035030f", officialName: "DODD NARROWS", latitude: 49.1, longitude: -123.8, operating: true }],
+      overlay,
+    );
+    expect(refs).toEqual([{ id: "63aef1866a2b9417c035030f", label: "Dodd Narrows", key: "chs-dodd-narrows" }]);
   });
 
-  it("refuses an entry with an empty key, name, or providerId rather than emitting a blank id", () => {
-    // fitStation does `station.key ?? slug(station.label)` - `??` only skips
-    // null/undefined, so an empty string sails past that fallback and would
-    // otherwise come out as a blank or wrong fitted id. mapRegistry must
-    // catch this at the source instead of shipping it quietly. Synthetic
-    // data, not the real registry - the real one should never have this
-    // shape, and this guard has to hold regardless of what it currently has.
-    expect(() =>
-      mapRegistry({ "": { name: "Dodd Narrows", provider: "chs", providerId: "abc123" } }, "chs"),
-    ).toThrow(/empty/);
-    expect(() =>
-      mapRegistry({ "chs-dodd-narrows": { name: "", provider: "chs", providerId: "abc123" } }, "chs"),
-    ).toThrow(/empty/);
-    expect(() =>
-      mapRegistry({ "chs-dodd-narrows": { name: "Dodd Narrows", provider: "chs", providerId: "" } }, "chs"),
-    ).toThrow(/empty/);
+  it("falls back to the official name and no key when unmatched (pipeline slugs it)", () => {
+    const refs = stationsFromApi(
+      [{ id: "abc", officialName: "Somewhere New", latitude: 0, longitude: 0, operating: true }],
+      overlay,
+    );
+    expect(refs).toEqual([{ id: "abc", label: "Somewhere New" }]);
   });
 });

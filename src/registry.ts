@@ -1,54 +1,68 @@
 import registry from "@sailingnaturali/station-corrections/data/registry.json" with { type: "json" };
 import type { StationRef } from "./pipeline.js";
-
-interface RegistryEntry {
-  name: string;
-  provider: string;
-  providerId: string;
-}
+import type { IwlsStation } from "./client.js";
 
 /**
- * The station list, from the shared registry rather than a copy kept here.
+ * The registry as a name/metadata overlay, not the station id source.
  *
- * Station identity - which gates exist, what they are called, and which
- * opaque IWLS handle each maps to - is curated once in
- * @sailingnaturali/station-corrections and read by everything that needs it.
- * This repo used to keep its own local station list, which meant the
- * same three facts lived in two places with nothing reconciling them.
- *
- * The mapping is deliberately not one-to-one:
- *   registry key        -> StationRef.key   (stable public id, survives renames)
- *   registry providerId -> StationRef.id    (what IwlsClient actually fetches)
- *   registry name       -> StationRef.label (display, and what --only matches)
+ * Station ids now come live from the IWLS index (`IwlsClient.stations`); the
+ * shared registry supplies only the stable public key and the cleaned display
+ * name, matched to a live station by normalized name. `providerId` is
+ * deliberately NOT read here — the registry package is dropping it (Phase 2),
+ * and nothing in this repo may depend on it.
  *
  * No CHS-derived data is involved: these are identifiers and hand-written
  * names, not predictions or constituents.
  */
-export function registryStations(provider = "chs"): StationRef[] {
-  return mapRegistry(registry as Record<string, RegistryEntry>, provider);
+interface RegistryEntry {
+  name: string;
+  provider: string;
+}
+
+/** Fold case, punctuation and spacing so "DODD NARROWS" matches "Dodd Narrows". */
+export function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export interface OverlayEntry {
+  key: string;
+  label: string;
 }
 
 /**
- * The actual key -> StationRef mapping, split out so the empty-field guard
- * below can be exercised with synthetic data in a test - reaching for a real
- * bad entry would mean shipping one into the registry package itself just to
- * prove this throws.
+ * Build a `normalizedName -> {key, label}` overlay from the shared registry,
+ * filtered to one provider. Reads only the object key and `name`; an empty
+ * key or name is refused at the source rather than silently detaching a gate
+ * from its live station.
  */
-export function mapRegistry(data: Record<string, RegistryEntry>, provider: string): StationRef[] {
-  return Object.entries(data)
-    .filter(([, entry]) => entry.provider === provider)
-    .map(([key, entry]) => {
-      // fitStation does `station.key ?? slug(station.label)` - `??` only
-      // falls through on null/undefined, so an empty string here would sail
-      // straight past that fallback and come out the other end as a blank or
-      // wrong fitted id. That is exactly the "quiet wrongness" this registry
-      // read is supposed to prevent, so refuse loudly at the source instead
-      // of letting it surface three layers away in a published bundle.
-      // Trimmed, because a whitespace-only providerId is falsy to nobody and
-      // would still be handed to IwlsClient as a station handle.
-      if (!key?.trim() || !entry.name?.trim() || !entry.providerId?.trim()) {
-        throw new Error(`registry entry ${JSON.stringify(key)} has an empty key, name, or providerId`);
-      }
-      return { id: entry.providerId, label: entry.name, key };
-    });
+export function registryOverlay(
+  data: Record<string, RegistryEntry> = registry as Record<string, RegistryEntry>,
+  provider = "chs",
+): Map<string, OverlayEntry> {
+  const overlay = new Map<string, OverlayEntry>();
+  for (const [key, entry] of Object.entries(data)) {
+    if (entry.provider !== provider) continue;
+    if (!key?.trim() || !entry.name?.trim()) {
+      throw new Error(`registry entry ${JSON.stringify(key)} has an empty key or name`);
+    }
+    overlay.set(normalizeName(entry.name), { key, label: entry.name });
+  }
+  return overlay;
+}
+
+/**
+ * Resolve live IWLS current stations to StationRefs. The id is the live IWLS
+ * handle (used only to fetch, never emitted); a name match in the overlay
+ * upgrades the label to the curated name and supplies the stable key. An
+ * unmatched station keeps its official name and no key, so `fitStation`
+ * derives a slug from the label.
+ */
+export function stationsFromApi(
+  stations: IwlsStation[],
+  overlay: Map<string, OverlayEntry>,
+): StationRef[] {
+  return stations.map((s) => {
+    const hit = overlay.get(normalizeName(s.officialName));
+    return hit ? { id: s.id, label: hit.label, key: hit.key } : { id: s.id, label: s.officialName };
+  });
 }
