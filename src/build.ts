@@ -104,8 +104,8 @@ export async function buildBundle(opts: BuildBundleOptions = {}): Promise<Record
 
   const start = new Date(`${trainingStart}T00:00:00Z`);
   const fitted: FittedStation[] = [];
-  for (const station of stations) {
-    onProgress(`${station.label} …`);
+  for (const [i, station] of stations.entries()) {
+    onProgress(`[${i + 1}/${stations.length}] ${station.label} …`);
     try {
       const result = await fitStation(client, station, {
         start,

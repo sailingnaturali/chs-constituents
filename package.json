@@ -1,6 +1,6 @@
 {
   "name": "@sailingnaturali/chs-constituents",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fit tidal-current harmonic constituents from published predictions, in the browser or on a SignalK server",
   "license": "MIT",
   "type": "module",
