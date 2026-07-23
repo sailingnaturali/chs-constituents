@@ -1,9 +1,15 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { buildBundle, NOTE } from "../src/build.js";
 import * as pipeline from "../src/pipeline.js";
+import * as derived from "../src/derived.js";
 import { IwlsClient } from "../src/client.js";
 
 afterEach(() => vi.restoreAllMocks());
+
+// The real registry always carries the Malibu derived gate, so every buildBundle
+// runs the derived phase. Isolate the current-station tests from it by default;
+// the derived test below opts back in with a controlled spec.
+beforeEach(() => vi.spyOn(derived, "derivedGates").mockReturnValue([]));
 
 describe("buildBundle", () => {
   it("fits resolved stations, carries the NOTE, and reports progress", async () => {
@@ -65,5 +71,45 @@ describe("buildBundle", () => {
     ] as never);
     vi.spyOn(pipeline, "fitStation").mockResolvedValue(null as never);
     await expect(buildBundle({ cacheDir: ".cache-test" })).rejects.toThrow(/No stations were fitted/);
+  });
+
+  it("fits a derived gate's reference tide port and emits the derived-slack record", async () => {
+    vi.spyOn(IwlsClient.prototype, "stations").mockResolvedValue([
+      { id: "cur", officialName: "Dodd Narrows", latitude: 0, longitude: 0, operating: true },
+    ] as never);
+    vi.spyOn(pipeline, "fitStation").mockResolvedValue({
+      id: "chs-dodd-narrows", name: "Dodd Narrows", type: "harmonic",
+      floodDirection: 100, ebbDirection: 280, offset: 0, constituents: [],
+    } as never);
+    (derived.derivedGates as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        key: "chs-malibu-rapids", name: "Malibu Rapids",
+        referenceKey: "chs-point-atkinson", referenceName: "Point Atkinson",
+        hwLagMinutes: 25, lwLagMinutes: 35,
+      },
+    ]);
+    vi.spyOn(IwlsClient.prototype, "tideStations").mockResolvedValue([
+      { id: "iwls-pa", officialName: "Point Atkinson", latitude: 49.3, longitude: -123.2, operating: true },
+    ] as never);
+    const fitTide = vi.spyOn(pipeline, "fitTideStation").mockResolvedValue({
+      id: "chs-point-atkinson", name: "Point Atkinson", type: "tide-harmonic", source: "chs-derived",
+      offset: 3.0, constituents: [{ name: "M2", amplitude: 1, phase: 0 }], rms: 0.02, trainingDays: 210,
+    } as never);
+
+    const bundle = await buildBundle({ cacheDir: ".cache-test" });
+    const stations = (bundle as { stations: Record<string, unknown>[] }).stations;
+
+    // The reference tide port is fitted from its LIVE IWLS id, keyed by the registry key.
+    expect(fitTide).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: "iwls-pa", key: "chs-point-atkinson", label: "Point Atkinson" }),
+      expect.anything(),
+    );
+    expect(stations).toContainEqual(expect.objectContaining({ id: "chs-point-atkinson", type: "tide-harmonic" }));
+    // The derived-slack record carries the reference + lags and NO constituents/speed.
+    expect(stations).toContainEqual({
+      id: "chs-malibu-rapids", name: "Malibu Rapids", type: "derived-slack", source: "tide-derived",
+      reference: "chs-point-atkinson", hwLagMinutes: 25, lwLagMinutes: 35,
+    });
   });
 });

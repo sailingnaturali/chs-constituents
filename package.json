@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@neaps/tide-predictor": "^0.10.0",
-    "@sailingnaturali/station-corrections": "^2.2.0"
+    "@sailingnaturali/station-corrections": "^2.3.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

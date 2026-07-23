@@ -69,6 +69,19 @@ export function currentStations(raw: RawStation[]): IwlsStation[] {
     }));
 }
 
+/**
+ * Keep only tide (water-level) stations: those publishing a `wlp` prediction
+ * series. A derived gate's reference port is a tide station, which
+ * `currentStations` drops — resolving it needs this separate filter.
+ */
+export function tideStations(raw: RawStation[]): IwlsStation[] {
+  return raw
+    .filter((s) => (s.timeSeries ?? []).some((t) => t.code === "wlp"))
+    .map(({ id, officialName, latitude, longitude, operating }) => ({
+      id, officialName, latitude, longitude, operating,
+    }));
+}
+
 /** A CHS event as published, already normalised to signed along-axis speed. */
 export interface ObservedEvent {
   time: string;
@@ -159,6 +172,11 @@ export class IwlsClient {
   /** Every CHS current station, live from the IWLS index. */
   async stations(): Promise<IwlsStation[]> {
     return currentStations(await this.get<RawStation[]>("stations"));
+  }
+
+  /** Every CHS tide (water-level) station — for resolving derived-gate reference ports. */
+  async tideStations(): Promise<IwlsStation[]> {
+    return tideStations(await this.get<RawStation[]>("stations"));
   }
 
   /** A continuous time series, fetched in cached 7-day chunks. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { IwlsClient, currentStations } from "../src/client.js";
+import { IwlsClient, currentStations, tideStations } from "../src/client.js";
 
 // Trimmed to the fields the code reads. The IWLS index carries ~1570 stations;
 // only those publishing a wcsp1 (water-current speed) series are current
@@ -35,6 +35,13 @@ describe("currentStations", () => {
   it("survives a station with no timeSeries array", () => {
     const raw = [{ id: "x", officialName: "X", latitude: 0, longitude: 0, operating: false }];
     expect(currentStations(raw as never)).toEqual([]);
+  });
+});
+
+describe("tideStations", () => {
+  it("keeps only stations that publish a wlp series", () => {
+    // A derived gate's reference is a TIDE port (wlp), which currentStations drops.
+    expect(tideStations(RAW as never).map((s) => s.id)).toEqual(["wl1"]);
   });
 });
 

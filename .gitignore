@@ -8,3 +8,7 @@ currents.json
 *.bundle.json
 .venv/
 .DS_Store
+
+# Reference-tide fragment for the offline engine — CHS-derived, operator licence,
+# NOT for redistribution (same stance as currents.json above).
+currents-chs.json

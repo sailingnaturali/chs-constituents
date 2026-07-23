@@ -5,8 +5,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { IwlsClient, type ChunkCache } from "./client.js";
-import { fitStation, type FittedStation, type StationRef } from "./pipeline.js";
-import { registryOverlay, stationsFromApi } from "./registry.js";
+import { fitStation, fitTideStation, type FittedStation, type StationRef } from "./pipeline.js";
+import { normalizeName, registryOverlay, stationsFromApi } from "./registry.js";
+import { derivedGates, derivedSlackRecord, type DerivedSlackRecord } from "./derived.js";
 import { MATCH_WINDOW_MIN } from "./validate.js";
 
 export const NOTE =
@@ -125,6 +126,48 @@ export async function buildBundle(opts: BuildBundleOptions = {}): Promise<Record
     }
   }
 
+  // Derived gates (Malibu Rapids): passes with no current station of their own.
+  // Fit each gate's reference tide port once (a water-level fit) and emit a
+  // derived-slack record pointing at it; a consumer predicts that tide offline
+  // and derives slack from its HW/LW + the lags.
+  const gates = derivedGates();
+  const derivedRecords: DerivedSlackRecord[] = [];
+  if (gates.length) {
+    const tideByName = new Map(
+      (await client.tideStations()).map((s) => [normalizeName(s.officialName), s]),
+    );
+    const fittedRefs = new Set(fitted.map((s) => s.id));
+    for (const gate of gates) {
+      if (!fittedRefs.has(gate.referenceKey)) {
+        const live = tideByName.get(normalizeName(gate.referenceName));
+        if (!live) {
+          onProgress(`derived gate ${gate.key}: no live IWLS tide station for ${gate.referenceName}`);
+          skipped.push({ label: gate.referenceName, key: gate.referenceKey, reason: "no live IWLS tide station" });
+          continue;
+        }
+        onProgress(`derived reference ${gate.referenceName} (${gate.key}) …`);
+        try {
+          const ref = await fitTideStation(
+            client,
+            { id: live.id, label: gate.referenceName, key: gate.referenceKey },
+            { start, days: trainingDays, onProgress },
+          );
+          if (!ref) {
+            skipped.push({ label: gate.referenceName, key: gate.referenceKey, reason: "insufficient water-level samples" });
+            continue;
+          }
+          fitted.push(ref);
+          fittedRefs.add(gate.referenceKey);
+        } catch (error) {
+          onProgress(`  FAILED: ${(error as Error).message}`);
+          skipped.push({ label: gate.referenceName, key: gate.referenceKey, reason: (error as Error).message });
+          continue;
+        }
+      }
+      derivedRecords.push(derivedSlackRecord(gate));
+    }
+  }
+
   if (!fitted.length) throw new Error("No stations were fitted");
 
   const generated = new Date().toISOString().slice(0, 10);
@@ -140,6 +183,6 @@ export async function buildBundle(opts: BuildBundleOptions = {}): Promise<Record
       "sign of modelled velocity at CHS extremum times. Tiers judge extremum timing.";
   }
   if (skipped.length) bundle.skipped = skipped;
-  bundle.stations = fitted;
+  bundle.stations = [...fitted, ...derivedRecords];
   return bundle;
 }

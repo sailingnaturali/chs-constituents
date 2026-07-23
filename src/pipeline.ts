@@ -1,5 +1,5 @@
 import { IwlsClient, fetchProjectedSeries, type ObservedEvent } from "./client.js";
-import { fit, type FittedConstituent } from "./fit.js";
+import { fit, type FittedConstituent, type Sample } from "./fit.js";
 import { currentEvents, type CurrentEvent } from "./events.js";
 import { createTidePredictor } from "@neaps/tide-predictor";
 import { validate, tier, type Tier, type ValidationResult } from "./validate.js";
@@ -39,10 +39,12 @@ export interface StationRef {
 export interface FittedStation {
   id: string;
   name: string;
-  type: "harmonic";
+  /** "harmonic" = a current (velocity) fit; "tide-harmonic" = a water-level fit. */
+  type: "harmonic" | "tide-harmonic";
   source: "chs-derived";
-  floodDirection: number;
-  ebbDirection: number;
+  /** Absent on a tide-harmonic fit: a tide has no flood/ebb axis. */
+  floodDirection?: number;
+  ebbDirection?: number;
   offset: number;
   constituents: FittedConstituent[];
   rms: number;
@@ -61,6 +63,63 @@ export interface FitStationOptions {
 
 const slug = (label: string) =>
   "chs-" + label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+/** wlp is 1-minute sampled; a harmonic fit wants nothing finer than this. */
+const WLP_STEP_MINUTES = 15;
+
+/** Sort a fetched series by time and thin it to one sample per `stepMinutes`. */
+function decimate(series: Map<string, number>, stepMinutes: number): Sample[] {
+  const stepMs = stepMinutes * 60_000;
+  const sorted = [...series]
+    .map(([time, value]) => ({ time: new Date(time), value }))
+    .sort((a, b) => a.time.getTime() - b.time.getTime());
+  const out: Sample[] = [];
+  let last = -Infinity;
+  for (const s of sorted) {
+    if (s.time.getTime() - last >= stepMs) {
+      out.push(s);
+      last = s.time.getTime();
+    }
+  }
+  return out;
+}
+
+/**
+ * Fetch and fit a reference tide port's water-level (`wlp`) series into harmonic
+ * constituents — the same fit-not-raw path as the currents, so the reference
+ * tide can be predicted offline and a derived gate's slack derived from its HW/LW.
+ * A tide has no flood/ebb axis, so none is emitted. Returns null on a sparse series.
+ */
+export async function fitTideStation(
+  client: IwlsClient,
+  station: StationRef,
+  { start, days, stepMinutes = WLP_STEP_MINUTES, onProgress = () => {} }:
+    FitStationOptions & { stepMinutes?: number },
+): Promise<FittedStation | null> {
+  const series = await client.series(station.id, "wlp", start, days);
+  const samples = decimate(series, stepMinutes);
+
+  const minimum = Math.floor(days * (1440 / stepMinutes) * 0.6);
+  if (samples.length < minimum) {
+    onProgress(`  SKIP: only ${samples.length} water-level samples (need ${minimum})`);
+    return null;
+  }
+
+  const result = fit(samples, { constituents: BASIS });
+  const constituents = result.constituents.filter((c) => c.amplitude > MIN_AMPLITUDE);
+  onProgress(`  ${constituents.length} tide constituents, RMS ${result.rms.toFixed(3)} m`);
+
+  return {
+    id: station.key ?? slug(station.label),
+    name: station.label,
+    type: "tide-harmonic",
+    source: "chs-derived",
+    offset: result.offset,
+    constituents,
+    rms: result.rms,
+    trainingDays: days,
+  };
+}
 
 /**
  * Fetch, fit, and optionally validate one station.
