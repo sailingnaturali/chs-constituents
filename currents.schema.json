@@ -12,6 +12,19 @@
       "description": "Which harness produced the confidence fields, when, and against what golden window. Emitted automatically when validation runs." },
     "validationNote": { "type": "string",
       "description": "The validation definition in force (event set, matching rule, direction test)." },
+    "skipped": {
+      "type": "array",
+      "description": "Stations resolved but not fitted this run, with why — so coverage is auditable from the bundle alone. Absent when nothing was dropped.",
+      "items": {
+        "type": "object",
+        "required": ["label", "reason"],
+        "properties": {
+          "label": { "type": "string" },
+          "key": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
     "stations": {
       "type": "array",
       "items": {

@@ -104,6 +104,9 @@ export async function buildBundle(opts: BuildBundleOptions = {}): Promise<Record
 
   const start = new Date(`${trainingStart}T00:00:00Z`);
   const fitted: FittedStation[] = [];
+  // Dropped stations go in the bundle, not just stderr — coverage stays
+  // auditable after the run (the built JSON is the only surviving artifact).
+  const skipped: { label: string; key?: string; reason: string }[] = [];
   for (const [i, station] of stations.entries()) {
     onProgress(`[${i + 1}/${stations.length}] ${station.label} …`);
     try {
@@ -115,8 +118,10 @@ export async function buildBundle(opts: BuildBundleOptions = {}): Promise<Record
         onProgress: (message) => onProgress(message),
       });
       if (result) fitted.push(result);
+      else skipped.push({ label: station.label, ...(station.key && { key: station.key }), reason: "insufficient samples" });
     } catch (error) {
       onProgress(`  FAILED: ${(error as Error).message}`);
+      skipped.push({ label: station.label, ...(station.key && { key: station.key }), reason: (error as Error).message });
     }
   }
 
@@ -134,6 +139,7 @@ export async function buildBundle(opts: BuildBundleOptions = {}): Promise<Record
       "is slackMedian, never pooled into the headline. Direction is tested as the " +
       "sign of modelled velocity at CHS extremum times. Tiers judge extremum timing.";
   }
+  if (skipped.length) bundle.skipped = skipped;
   bundle.stations = fitted;
   return bundle;
 }

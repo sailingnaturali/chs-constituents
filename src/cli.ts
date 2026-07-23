@@ -29,6 +29,8 @@ You must run this yourself; the output cannot be redistributed. See README.md.
   --validate-days <n>     Validation window (default: 7)
   --cache-dir <path>      Where to cache fetched chunks (default: .cache)
   --request-interval <s>  Seconds between requests (default: 2.5)
+  --user-agent <string>   User-Agent header (default: chs-constituents/1.0;
+                          CHS sometimes refuses non-browser UAs — see README)
   --only <text>           Only stations whose label contains this (repeatable)`,
     );
     return 0;
@@ -51,6 +53,7 @@ You must run this yourself; the output cannot be redistributed. See README.md.
       validateDays: Number(arg(argv, "validate-days", "7")),
       cacheDir: arg(argv, "cache-dir", ".cache")!,
       requestIntervalMs: Number(arg(argv, "request-interval", "2.5")) * 1000,
+      userAgent: arg(argv, "user-agent"),
       onProgress: (message) => console.error(message),
     });
   } catch (e) {

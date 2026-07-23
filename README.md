@@ -188,7 +188,10 @@ These cost real debugging time. They are in the code as comments too.
 - **`floodDirection` comes from CHS `/metadata`** and is occasionally wrong for the actual
   channel axis, which is what produces label flips. Validation catches it; run with
   `--validate-from`.
-- **Requires a residential IP and a browser-ish User-Agent.** Datacenter IPs get refused.
+- **Requires a residential IP; datacenter IPs get refused, and CHS has refused non-browser
+  User-Agents too.** The default UA stays an honest `chs-constituents/1.0` on purpose —
+  this tool doesn't masquerade by default. If your runs are refused despite a residential IP,
+  pass a browser-ish string yourself: `--user-agent` on the CLI, `userAgent` in `buildBundle`.
 
 ## Station lists
 
