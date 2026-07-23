@@ -28,6 +28,18 @@ describe("registryOverlay", () => {
     expect([...overlay.keys()]).toEqual(["x"]);
   });
 
+  it("skips tide reference ports (kind !== current) so they can't read as name drift", () => {
+    const overlay = registryOverlay(
+      {
+        "chs-x": { name: "X", provider: "chs" },
+        "chs-victoria": { name: "Victoria", provider: "chs", kind: "tide" },
+        "chs-y": { name: "Y", provider: "chs", kind: "current" },
+      },
+      "chs",
+    );
+    expect([...overlay.keys()].sort()).toEqual(["x", "y"]);
+  });
+
   it("refuses an entry with an empty key or name", () => {
     expect(() => registryOverlay({ "": { name: "X", provider: "chs" } })).toThrow(/empty/);
     expect(() => registryOverlay({ "chs-x": { name: "", provider: "chs" } })).toThrow(/empty/);

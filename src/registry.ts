@@ -17,6 +17,8 @@ import type { IwlsStation } from "./client.js";
 interface RegistryEntry {
   name: string;
   provider: string;
+  /** "tide" | "current"; absent means current (pre-2.1.0 entries). */
+  kind?: string;
 }
 
 /** Fold case, punctuation and spacing so "DODD NARROWS" matches "Dodd Narrows". */
@@ -42,6 +44,9 @@ export function registryOverlay(
   const overlay = new Map<string, OverlayEntry>();
   for (const [key, entry] of Object.entries(data)) {
     if (entry.provider !== provider) continue;
+    // Tide reference ports (2.2.0+) have no current series; carrying them
+    // into the overlay makes the no-live-station drift warning fire 10x/build.
+    if (entry.kind && entry.kind !== "current") continue;
     if (!key?.trim() || !entry.name?.trim()) {
       throw new Error(`registry entry ${JSON.stringify(key)} has an empty key or name`);
     }

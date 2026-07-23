@@ -35,12 +35,12 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "vitest run --exclude \"**/compare_events.test.ts\"",
+    "test": "vitest run",
     "fit": "tsc && node dist/cli.js"
   },
   "dependencies": {
     "@neaps/tide-predictor": "^0.10.0",
-    "@sailingnaturali/station-corrections": "^2.0.0"
+    "@sailingnaturali/station-corrections": "^2.2.0"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

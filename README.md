@@ -111,7 +111,8 @@ npm run fit -- --training-days 90 --validate-from 2026-06-01
 ### How long it takes
 
 About **52 requests per station** — 26 seven-day chunks × 2 series — which at the 2 s default
-interval is roughly **1.7 minutes per station**. All 19 bundled gates take about half an hour.
+interval is roughly **1.7 minutes per station**. A default run (~30 live current stations) takes
+under an hour; the 19 registry-named gates alone, about half.
 
 Cached chunks are free, and chunks are anchored to a fixed 7-day grid rather than to your start
 date, so re-running with `--training-days 90` after a 180-day run refetches **nothing**.
@@ -191,11 +192,12 @@ These cost real debugging time. They are in the code as comments too.
 
 ## Station lists
 
-By default the 19 bundled gates come from the shared
+By default every live IWLS current station is fitted (~30 today). The 19 gates named in the
+shared
 [`@sailingnaturali/station-corrections`](https://www.npmjs.com/package/@sailingnaturali/station-corrections)
-registry, not a copy kept in this repo — station identity (which gates exist, what they're
-called, which CHS handle each maps to) is curated once there and read by everything that needs
-it. A registry station's public id is a stable `key` that survives label renames. That
+registry get their curated names and stable keys from it; unmatched stations keep their official
+IWLS names. Station identity (which gates exist, what they're called) is curated once in that
+registry, not a copy kept in this repo, and read by everything that needs it. A registry station's public id is a stable `key` that survives label renames. That
 dependency carries identifiers and hand-written names, not CHS predictions or constituents, so
 depending on it does not cross the line drawn above.
 `--stations <path>` still takes a `[{id, label}]` file for anything the registry does not cover;
